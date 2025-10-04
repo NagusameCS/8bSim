@@ -1,86 +1,73 @@
-from simulation_models import Country, Language, Agent
-from simulation_logic import Simulation
+import json
 import random
+from .simulation_models import Country, Language, Agent
+from .simulation import Simulation
 
-def setup_initial_state():
-    """Creates a simple initial state for the simulation."""
-    
-    # 1. Create Languages
-    lang1 = Language(lang_id=1, name="English")
-    lang2 = Language(lang_id=2, name="Spanish")
-    languages = [lang1, lang2]
+def setup_from_config(config_path):
+    """Sets up the simulation from a JSON config file."""
+    with open(config_path, 'r') as f:
+        config = json.load(f)
 
-    # 2. Create Countries
-    # Simplified life expectancy and fertility for demonstration
-    life_expectancy_A = {0: 0.99, 10: 0.99, 20: 0.98, 30: 0.98, 40: 0.97, 50: 0.96, 60: 0.9, 70: 0.8, 80: 0.6, 90: 0.4}
-    fertility_A = {20: 0.05, 30: 0.04}
+    languages = [Language(lang['id'], lang['name']) for lang in config['languages']]
+    lang_map = {lang.name: lang for lang in languages}
 
-    country_A = Country(country_id=101, name="CountryA", gdp_per_capita=50000, 
-                        life_expectancy=life_expectancy_A, fertility_rates=fertility_A,
-                        income_distribution={'low': 0.2, 'middle': 0.5, 'high': 0.3},
-                        migration_rate=0.01)
+    countries = []
+    for country_data in config['countries']:
+        country = Country(
+            country_id=country_data['id'],
+            name=country_data['name'],
+            gdp_per_capita=country_data['gdp_per_capita'],
+            life_expectancy=country_data['life_expectancy'],
+            fertility_rates=country_data['fertility_rates'],
+            income_distribution=country_data['income_distribution'],
+            migration_rate=country_data['migration_rate'],
+            neighbors=country_data['neighbors']
+        )
+        countries.append(country)
 
-    life_expectancy_B = {0: 0.98, 10: 0.98, 20: 0.97, 30: 0.97, 40: 0.96, 50: 0.95, 60: 0.85, 70: 0.75, 80: 0.5, 90: 0.3}
-    fertility_B = {20: 0.06, 30: 0.05}
-
-    country_B = Country(country_id=102, name="CountryB", gdp_per_capita=30000,
-                        life_expectancy=life_expectancy_B, fertility_rates=fertility_B,
-                        income_distribution={'low': 0.6, 'middle': 0.3, 'high': 0.1},
-                        migration_rate=0.02)
-
-    # Set up neighbors
-    country_A.neighbors.append(country_B)
-    country_B.neighbors.append(country_A)
-    
-    countries = [country_A, country_B]
-
-    # 3. Create Initial Population of Agents
     agent_id_counter = 0
-    # Populate Country A
-    for _ in range(100): # Create 100 agents for Country A
-        age = random.randint(0, 80)
-        stratum = random.choice(['low', 'mid', 'high'])
-        agent = Agent(agent_id=agent_id_counter, country_id=country_A.id, age=age, economic_stratum=stratum)
-        agent.languages.append(lang1) # All start with English
-        if random.random() < 0.2: # 20% also speak Spanish
-            agent.languages.append(lang2)
-        country_A.agents.append(agent)
-        agent_id_counter += 1
+    for country_data in config['countries']:
+        country = next(c for c in countries if c.id == country_data['id'])
+        for _ in range(country_data['initial_population']):
+            age = random.randint(0, 80)
+            stratum = random.choices(
+                list(country.income_distribution.keys()),
+                weights=list(country.income_distribution.values()),
+                k=1
+            )[0]
+            
+            agent = Agent(agent_id_counter, country.id, age, stratum)
+            agent_id_counter += 1
 
-    # Populate Country B
-    for _ in range(80): # Create 80 agents for Country B
-        age = random.randint(0, 80)
-        stratum = random.choice(['low', 'mid', 'high'])
-        agent = Agent(agent_id=agent_id_counter, country_id=country_B.id, age=age, economic_stratum=stratum)
-        agent.languages.append(lang2) # All start with Spanish
-        if random.random() < 0.1: # 10% also speak English
-            agent.languages.append(lang1)
-        country_B.agents.append(agent)
-        agent_id_counter += 1
-        
+            # Assign initial languages based on probabilities in config
+            for lang_name, probability in country_data['initial_languages'].items():
+                if random.random() < probability:
+                    agent.languages.append(lang_map[lang_name])
+            
+            # Ensure agent has at least one language if any are defined
+            if not agent.languages and country_data['initial_languages']:
+                # Assign the most probable language as a fallback
+                primary_lang = max(country_data['initial_languages'], key=country_data['initial_languages'].get)
+                agent.languages.append(lang_map[primary_lang])
+
+            country.agents.append(agent)
+
     return countries, languages
 
 if __name__ == "__main__":
-    # Setup the simulation
-    initial_countries, initial_languages = setup_initial_state()
-    sim = Simulation(countries=initial_countries, languages=initial_languages)
+    # Setup the simulation from the config file
+    initial_countries, initial_languages = setup_from_config('simulation/config.json')
+    sim = Simulation(countries=initial_countries, languages=initial_languages, scale_factor=1000)
 
     # Run the simulation for 20 years
     for year in range(20):
         sim.run_step()
-        # Optional: Print yearly stats to observe changes
-        print(f"\n--- Year {year} Stats ---")
-        for country in sim.countries.values():
-            print(f"Country: {country.name}, Population: {len(country.agents)}")
-            # Format prevalence for readability
-            prevalence_str = ", ".join([f"{sim.languages[l_id].name}: {p:.2%}" for l_id, p in country.language_prevalence.items()])
-            print(f"  Prevalence: {prevalence_str}")
+        sim.print_stats()
 
-
-    # Print some final stats
+    # Print a final report
     print("\n--- Simulation End Report ---")
     for country in sim.countries.values():
-        living_agents = [agent for agent in country.agents if agent.alive]
         print(f"\nCountry: {country.name}")
-        print(f"  - Final Population: {len(living_agents)}")
-        print(f"  - Language Prevalence: {country.language_prevalence}")
+        print(f"  - Final Population: {len(country.agents)}")
+        prevalence_str = ", ".join([f"{sim.languages[l_id].name}: {p:.2%}" for l_id, p in country.language_prevalence.items()])
+        print(f"  - Language Prevalence: {prevalence_str if prevalence_str else 'N/A'}")

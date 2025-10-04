@@ -1,0 +1,1046 @@
+{
+    "languages": [
+        {
+            "id": 1,
+            "name": "English"
+        },
+        {
+            "id": 2,
+            "name": "Mandarin Chinese"
+        },
+        {
+            "id": 3,
+            "name": "Hindi"
+        },
+        {
+            "id": 4,
+            "name": "Spanish"
+        },
+        {
+            "id": 5,
+            "name": "French"
+        },
+        {
+            "id": 6,
+            "name": "Standard Arabic"
+        },
+        {
+            "id": 7,
+            "name": "Bengali"
+        },
+        {
+            "id": 8,
+            "name": "Russian"
+        },
+        {
+            "id": 9,
+            "name": "Portuguese"
+        },
+        {
+            "id": 10,
+            "name": "Urdu"
+        },
+        {
+            "id": 11,
+            "name": "Indonesian"
+        },
+        {
+            "id": 12,
+            "name": "German"
+        },
+        {
+            "id": 13,
+            "name": "Japanese"
+        },
+        {
+            "id": 14,
+            "name": "Swahili"
+        },
+        {
+            "id": 15,
+            "name": "Turkish"
+        },
+        {
+            "id": 16,
+            "name": "Korean"
+        },
+        {
+            "id": 17,
+            "name": "Italian"
+        },
+        {
+            "id": 18,
+            "name": "Persian"
+        },
+        {
+            "id": 19,
+            "name": "Punjabi"
+        },
+        {
+            "id": 20,
+            "name": "Vietnamese"
+        },
+        {
+            "id": 21,
+            "name": "Thai"
+        }
+    ],
+    "countries": [
+        {
+            "id": 1,
+            "name": "United States",
+            "gdp_per_capita": 69287,
+            "life_expectancy": {
+                "0": 0.998,
+                "10": 0.998,
+                "20": 0.997,
+                "30": 0.996,
+                "40": 0.994,
+                "50": 0.99,
+                "60": 0.98,
+                "70": 0.96,
+                "80": 0.9,
+                "90": 0.75
+            },
+            "fertility_rates": {
+                "20": 0.075,
+                "30": 0.0825
+            },
+            "income_distribution": {
+                "low": 0.15,
+                "middle": 0.5,
+                "high": 0.35
+            },
+            "migration_rate": 0.003,
+            "neighbors": [
+                2,
+                3
+            ],
+            "initial_population": 331,
+            "initial_languages": {
+                "English": 0.95,
+                "Spanish": 0.13,
+                "Mandarin Chinese": 0.01
+            }
+        },
+        {
+            "id": 2,
+            "name": "Canada",
+            "gdp_per_capita": 49222,
+            "life_expectancy": {
+                "0": 0.998,
+                "10": 0.998,
+                "20": 0.997,
+                "30": 0.996,
+                "40": 0.995,
+                "50": 0.992,
+                "60": 0.985,
+                "70": 0.97,
+                "80": 0.92,
+                "90": 0.8
+            },
+            "fertility_rates": {
+                "20": 0.04,
+                "30": 0.05
+            },
+            "income_distribution": {
+                "low": 0.1,
+                "middle": 0.6,
+                "high": 0.3
+            },
+            "migration_rate": 0.008,
+            "neighbors": [
+                1
+            ],
+            "initial_population": 38,
+            "initial_languages": {
+                "English": 0.86,
+                "French": 0.29,
+                "Mandarin Chinese": 0.03
+            }
+        },
+        {
+            "id": 3,
+            "name": "Mexico",
+            "gdp_per_capita": 9926,
+            "life_expectancy": {
+                "0": 0.995,
+                "10": 0.995,
+                "20": 0.993,
+                "30": 0.99,
+                "40": 0.985,
+                "50": 0.975,
+                "60": 0.95,
+                "70": 0.9,
+                "80": 0.8,
+                "90": 0.6
+            },
+            "fertility_rates": {
+                "20": 0.07,
+                "30": 0.06
+            },
+            "income_distribution": {
+                "low": 0.4,
+                "middle": 0.5,
+                "high": 0.1
+            },
+            "migration_rate": -0.001,
+            "neighbors": [
+                1,
+                4
+            ],
+            "initial_population": 126,
+            "initial_languages": {
+                "Spanish": 0.99,
+                "English": 0.12
+            }
+        },
+        {
+            "id": 4,
+            "name": "Guatemala",
+            "gdp_per_capita": 4603,
+            "life_expectancy": {
+                "0": 0.99,
+                "10": 0.99,
+                "20": 0.988,
+                "30": 0.985,
+                "40": 0.98,
+                "50": 0.97,
+                "60": 0.94,
+                "70": 0.88,
+                "80": 0.75,
+                "90": 0.55
+            },
+            "fertility_rates": {
+                "20": 0.09,
+                "30": 0.08
+            },
+            "income_distribution": {
+                "low": 0.55,
+                "middle": 0.4,
+                "high": 0.05
+            },
+            "migration_rate": -0.002,
+            "neighbors": [
+                3
+            ],
+            "initial_population": 17,
+            "initial_languages": {
+                "Spanish": 0.95
+            }
+        },
+        {
+            "id": 5,
+            "name": "China",
+            "gdp_per_capita": 12556,
+            "life_expectancy": {
+                "0": 0.997,
+                "10": 0.997,
+                "20": 0.996,
+                "30": 0.995,
+                "40": 0.992,
+                "50": 0.988,
+                "60": 0.98,
+                "70": 0.965,
+                "80": 0.92,
+                "90": 0.8
+            },
+            "fertility_rates": {
+                "20": 0.03,
+                "30": 0.035
+            },
+            "income_distribution": {
+                "low": 0.25,
+                "middle": 0.55,
+                "high": 0.2
+            },
+            "migration_rate": -0.0002,
+            "neighbors": [
+                8,
+                10
+            ],
+            "initial_population": 1444,
+            "initial_languages": {
+                "Mandarin Chinese": 0.92
+            }
+        },
+        {
+            "id": 8,
+            "name": "Russia",
+            "gdp_per_capita": 11273,
+            "life_expectancy": {
+                "0": 0.996,
+                "10": 0.996,
+                "20": 0.994,
+                "30": 0.99,
+                "40": 0.98,
+                "50": 0.96,
+                "60": 0.92,
+                "70": 0.85,
+                "80": 0.7,
+                "90": 0.5
+            },
+            "fertility_rates": {
+                "20": 0.045,
+                "30": 0.05
+            },
+            "income_distribution": {
+                "low": 0.2,
+                "middle": 0.65,
+                "high": 0.15
+            },
+            "migration_rate": 0.001,
+            "neighbors": [
+                5
+            ],
+            "initial_population": 145,
+            "initial_languages": {
+                "Russian": 0.98,
+                "English": 0.05
+            }
+        },
+        {
+            "id": 6,
+            "name": "United Kingdom",
+            "gdp_per_capita": 47334,
+            "life_expectancy": {
+                "0": 0.998,
+                "10": 0.998,
+                "20": 0.997,
+                "30": 0.996,
+                "40": 0.994,
+                "50": 0.991,
+                "60": 0.984,
+                "70": 0.97,
+                "80": 0.93,
+                "90": 0.82
+            },
+            "fertility_rates": {
+                "20": 0.04,
+                "30": 0.05
+            },
+            "income_distribution": {
+                "low": 0.15,
+                "middle": 0.6,
+                "high": 0.25
+            },
+            "migration_rate": 0.004,
+            "neighbors": [
+                7
+            ],
+            "initial_population": 67,
+            "initial_languages": {
+                "English": 0.98
+            }
+        },
+        {
+            "id": 7,
+            "name": "France",
+            "gdp_per_capita": 43518,
+            "life_expectancy": {
+                "0": 0.998,
+                "10": 0.998,
+                "20": 0.997,
+                "30": 0.996,
+                "40": 0.995,
+                "50": 0.992,
+                "60": 0.986,
+                "70": 0.975,
+                "80": 0.94,
+                "90": 0.85
+            },
+            "fertility_rates": {
+                "20": 0.045,
+                "30": 0.05
+            },
+            "income_distribution": {
+                "low": 0.15,
+                "middle": 0.6,
+                "high": 0.25
+            },
+            "migration_rate": 0.001,
+            "neighbors": [
+                6,
+                12,
+                9
+            ],
+            "initial_population": 65,
+            "initial_languages": {
+                "French": 0.96,
+                "English": 0.39,
+                "German": 0.05,
+                "Spanish": 0.05
+            }
+        },
+        {
+            "id": 9,
+            "name": "Spain",
+            "gdp_per_capita": 30115,
+            "life_expectancy": {
+                "0": 0.998,
+                "10": 0.998,
+                "20": 0.997,
+                "30": 0.996,
+                "40": 0.995,
+                "50": 0.992,
+                "60": 0.987,
+                "70": 0.978,
+                "80": 0.95,
+                "90": 0.87
+            },
+            "fertility_rates": {
+                "20": 0.0525,
+                "30": 0.06
+            },
+            "income_distribution": {
+                "low": 0.2,
+                "middle": 0.6,
+                "high": 0.2
+            },
+            "migration_rate": 0.001,
+            "neighbors": [
+                7
+            ],
+            "initial_population": 47,
+            "initial_languages": {
+                "Spanish": 0.99,
+                "English": 0.27
+            }
+        },
+        {
+            "id": 10,
+            "name": "India",
+            "gdp_per_capita": 2277,
+            "life_expectancy": {
+                "0": 0.994,
+                "10": 0.994,
+                "20": 0.992,
+                "30": 0.989,
+                "40": 0.984,
+                "50": 0.975,
+                "60": 0.955,
+                "70": 0.91,
+                "80": 0.82,
+                "90": 0.65
+            },
+            "fertility_rates": {
+                "20": 0.08,
+                "30": 0.07
+            },
+            "income_distribution": {
+                "low": 0.5,
+                "middle": 0.45,
+                "high": 0.05
+            },
+            "migration_rate": -0.0004,
+            "neighbors": [
+                5
+            ],
+            "initial_population": 1393,
+            "initial_languages": {
+                "Hindi": 0.44,
+                "Bengali": 0.08,
+                "English": 0.12
+            }
+        },
+        {
+            "id": 12,
+            "name": "Germany",
+            "gdp_per_capita": 50801,
+            "life_expectancy": {
+                "0": 0.998,
+                "10": 0.998,
+                "20": 0.997,
+                "30": 0.996,
+                "40": 0.994,
+                "50": 0.99,
+                "60": 0.982,
+                "70": 0.965,
+                "80": 0.92,
+                "90": 0.8
+            },
+            "fertility_rates": {
+                "20": 0.06,
+                "30": 0.0675
+            },
+            "income_distribution": {
+                "low": 0.1,
+                "middle": 0.65,
+                "high": 0.25
+            },
+            "migration_rate": 0.005,
+            "neighbors": [
+                7
+            ],
+            "initial_population": 83,
+            "initial_languages": {
+                "German": 0.95,
+                "English": 0.56,
+                "Turkish": 0.03
+            }
+        },
+        {
+            "id": 16,
+            "name": "Nigeria",
+            "gdp_per_capita": 2097,
+            "life_expectancy": {
+                "0": 0.985,
+                "10": 0.985,
+                "20": 0.982,
+                "30": 0.978,
+                "40": 0.97,
+                "50": 0.95,
+                "60": 0.91,
+                "70": 0.83,
+                "80": 0.68,
+                "90": 0.45
+            },
+            "fertility_rates": {
+                "20": 0.18,
+                "30": 0.15
+            },
+            "income_distribution": {
+                "low": 0.6,
+                "middle": 0.35,
+                "high": 0.05
+            },
+            "migration_rate": -0.0003,
+            "neighbors": [],
+            "initial_population": 211,
+            "initial_languages": {
+                "English": 0.6
+            }
+        },
+        {
+            "id": 17,
+            "name": "Brazil",
+            "gdp_per_capita": 7741,
+            "life_expectancy": {
+                "0": 0.995,
+                "10": 0.995,
+                "20": 0.993,
+                "30": 0.99,
+                "40": 0.985,
+                "50": 0.975,
+                "60": 0.95,
+                "70": 0.9,
+                "80": 0.8,
+                "90": 0.6
+            },
+            "fertility_rates": {
+                "20": 0.06,
+                "30": 0.05
+            },
+            "income_distribution": {
+                "low": 0.45,
+                "middle": 0.45,
+                "high": 0.1
+            },
+            "migration_rate": 0.0001,
+            "neighbors": [],
+            "initial_population": 214,
+            "initial_languages": {
+                "Portuguese": 0.99,
+                "Spanish": 0.05,
+                "English": 0.05
+            }
+        },
+        {
+            "id": 18,
+            "name": "Egypt",
+            "gdp_per_capita": 3876,
+            "life_expectancy": {
+                "0": 0.992,
+                "10": 0.992,
+                "20": 0.99,
+                "30": 0.987,
+                "40": 0.982,
+                "50": 0.97,
+                "60": 0.94,
+                "70": 0.88,
+                "80": 0.78,
+                "90": 0.6
+            },
+            "fertility_rates": {
+                "20": 0.09,
+                "30": 0.08
+            },
+            "income_distribution": {
+                "low": 0.5,
+                "middle": 0.45,
+                "high": 0.05
+            },
+            "migration_rate": -0.0004,
+            "neighbors": [
+                16
+            ],
+            "initial_population": 104,
+            "initial_languages": {
+                "Standard Arabic": 0.99,
+                "English": 0.2
+            }
+        },
+        {
+            "id": 13,
+            "name": "Japan",
+            "gdp_per_capita": 39285,
+            "life_expectancy": {
+                "0": 0.999,
+                "10": 0.999,
+                "20": 0.998,
+                "30": 0.997,
+                "40": 0.996,
+                "50": 0.994,
+                "60": 0.99,
+                "70": 0.985,
+                "80": 0.96,
+                "90": 0.88
+            },
+            "fertility_rates": {
+                "20": 0.03,
+                "30": 0.035
+            },
+            "income_distribution": {
+                "low": 0.15,
+                "middle": 0.6,
+                "high": 0.25
+            },
+            "migration_rate": 0.0005,
+            "neighbors": [
+                5,
+                8
+            ],
+            "initial_population": 125,
+            "initial_languages": {
+                "Japanese": 0.99,
+                "English": 0.3
+            }
+        },
+        {
+            "id": 19,
+            "name": "Australia",
+            "gdp_per_capita": 60443,
+            "life_expectancy": {
+                "0": 0.998,
+                "10": 0.998,
+                "20": 0.997,
+                "30": 0.996,
+                "40": 0.995,
+                "50": 0.992,
+                "60": 0.987,
+                "70": 0.978,
+                "80": 0.95,
+                "90": 0.87
+            },
+            "fertility_rates": {
+                "20": 0.045,
+                "30": 0.05
+            },
+            "income_distribution": {
+                "low": 0.15,
+                "middle": 0.6,
+                "high": 0.25
+            },
+            "migration_rate": 0.006,
+            "neighbors": [],
+            "initial_population": 26,
+            "initial_languages": {
+                "English": 0.92,
+                "Mandarin Chinese": 0.03
+            }
+        },
+        {
+            "id": 20,
+            "name": "South Africa",
+            "gdp_per_capita": 6994,
+            "life_expectancy": {
+                "0": 0.99,
+                "10": 0.99,
+                "20": 0.987,
+                "30": 0.982,
+                "40": 0.975,
+                "50": 0.96,
+                "60": 0.93,
+                "70": 0.87,
+                "80": 0.75,
+                "90": 0.55
+            },
+            "fertility_rates": {
+                "20": 0.08,
+                "30": 0.07
+            },
+            "income_distribution": {
+                "low": 0.65,
+                "middle": 0.3,
+                "high": 0.05
+            },
+            "migration_rate": 0.002,
+            "neighbors": [
+                16
+            ],
+            "initial_population": 60,
+            "initial_languages": {
+                "English": 0.49,
+                "Swahili": 0.02
+            }
+        },
+        {
+            "id": 21,
+            "name": "South Korea",
+            "gdp_per_capita": 34757,
+            "life_expectancy": {
+                "0": 0.999,
+                "10": 0.999,
+                "20": 0.998,
+                "30": 0.997,
+                "40": 0.996,
+                "50": 0.994,
+                "60": 0.99,
+                "70": 0.985,
+                "80": 0.96,
+                "90": 0.88
+            },
+            "fertility_rates": {
+                "20": 0.03,
+                "30": 0.045
+            },
+            "income_distribution": {
+                "low": 0.15,
+                "middle": 0.65,
+                "high": 0.2
+            },
+            "migration_rate": 0.001,
+            "neighbors": [
+                5,
+                13
+            ],
+            "initial_population": 51,
+            "initial_languages": {
+                "Korean": 0.99,
+                "English": 0.45
+            }
+        },
+        {
+            "id": 22,
+            "name": "Argentina",
+            "gdp_per_capita": 10729,
+            "life_expectancy": {
+                "0": 0.996,
+                "10": 0.996,
+                "20": 0.994,
+                "30": 0.991,
+                "40": 0.987,
+                "50": 0.98,
+                "60": 0.96,
+                "70": 0.92,
+                "80": 0.84,
+                "90": 0.68
+            },
+            "fertility_rates": {
+                "20": 0.07,
+                "30": 0.06
+            },
+            "income_distribution": {
+                "low": 0.4,
+                "middle": 0.5,
+                "high": 0.1
+            },
+            "migration_rate": 0.0005,
+            "neighbors": [
+                17
+            ],
+            "initial_population": 45,
+            "initial_languages": {
+                "Spanish": 0.99,
+                "English": 0.4,
+                "Portuguese": 0.05
+            }
+        },
+        {
+            "id": 23,
+            "name": "Italy",
+            "gdp_per_capita": 35551,
+            "life_expectancy": {
+                "0": 0.998,
+                "10": 0.998,
+                "20": 0.997,
+                "30": 0.996,
+                "40": 0.995,
+                "50": 0.993,
+                "60": 0.988,
+                "70": 0.98,
+                "80": 0.955,
+                "90": 0.88
+            },
+            "fertility_rates": {
+                "20": 0.03,
+                "30": 0.035
+            },
+            "income_distribution": {
+                "low": 0.2,
+                "middle": 0.6,
+                "high": 0.2
+            },
+            "migration_rate": 0.002,
+            "neighbors": [
+                7,
+                12
+            ],
+            "initial_population": 59,
+            "initial_languages": {
+                "Italian": 0.98,
+                "English": 0.34,
+                "French": 0.16,
+                "German": 0.05
+            }
+        },
+        {
+            "id": 11,
+            "name": "Indonesia",
+            "gdp_per_capita": 4291,
+            "life_expectancy": {
+                "0": 0.993,
+                "10": 0.993,
+                "20": 0.991,
+                "30": 0.988,
+                "40": 0.983,
+                "50": 0.972,
+                "60": 0.95,
+                "70": 0.9,
+                "80": 0.8,
+                "90": 0.62
+            },
+            "fertility_rates": {
+                "20": 0.08,
+                "30": 0.07
+            },
+            "income_distribution": {
+                "low": 0.45,
+                "middle": 0.5,
+                "high": 0.05
+            },
+            "migration_rate": -0.0001,
+            "neighbors": [
+                19
+            ],
+            "initial_population": 276,
+            "initial_languages": {
+                "Indonesian": 0.95,
+                "English": 0.1
+            }
+        },
+        {
+            "id": 15,
+            "name": "Turkey",
+            "gdp_per_capita": 9586,
+            "life_expectancy": {
+                "0": 0.996,
+                "10": 0.996,
+                "20": 0.994,
+                "30": 0.992,
+                "40": 0.988,
+                "50": 0.98,
+                "60": 0.965,
+                "70": 0.93,
+                "80": 0.86,
+                "90": 0.72
+            },
+            "fertility_rates": {
+                "20": 0.07,
+                "30": 0.06
+            },
+            "income_distribution": {
+                "low": 0.35,
+                "middle": 0.55,
+                "high": 0.1
+            },
+            "migration_rate": 0.0005,
+            "neighbors": [
+                8
+            ],
+            "initial_population": 85,
+            "initial_languages": {
+                "Turkish": 0.98,
+                "English": 0.17
+            }
+        },
+        {
+            "id": 24,
+            "name": "Saudi Arabia",
+            "gdp_per_capita": 23186,
+            "life_expectancy": {
+                "0": 0.997,
+                "10": 0.997,
+                "20": 0.996,
+                "30": 0.994,
+                "40": 0.991,
+                "50": 0.986,
+                "60": 0.975,
+                "70": 0.95,
+                "80": 0.9,
+                "90": 0.78
+            },
+            "fertility_rates": {
+                "20": 0.08,
+                "30": 0.07
+            },
+            "income_distribution": {
+                "low": 0.2,
+                "middle": 0.5,
+                "high": 0.3
+            },
+            "migration_rate": 0.002,
+            "neighbors": [
+                18
+            ],
+            "initial_population": 35,
+            "initial_languages": {
+                "Standard Arabic": 0.95,
+                "English": 0.25
+            }
+        },
+        {
+            "id": 25,
+            "name": "Iran",
+            "gdp_per_capita": 3374,
+            "life_expectancy": {
+                "0": 0.996,
+                "10": 0.996,
+                "20": 0.994,
+                "30": 0.992,
+                "40": 0.988,
+                "50": 0.98,
+                "60": 0.965,
+                "70": 0.93,
+                "80": 0.86,
+                "90": 0.72
+            },
+            "fertility_rates": {
+                "20": 0.06,
+                "30": 0.05
+            },
+            "income_distribution": {
+                "low": 0.4,
+                "middle": 0.5,
+                "high": 0.1
+            },
+            "migration_rate": -0.0005,
+            "neighbors": [
+                15,
+                26
+            ],
+            "initial_population": 85,
+            "initial_languages": {
+                "Persian": 0.9,
+                "English": 0.1
+            }
+        },
+        {
+            "id": 26,
+            "name": "Pakistan",
+            "gdp_per_capita": 1505,
+            "life_expectancy": {
+                "0": 0.992,
+                "10": 0.992,
+                "20": 0.99,
+                "30": 0.987,
+                "40": 0.982,
+                "50": 0.97,
+                "60": 0.945,
+                "70": 0.89,
+                "80": 0.79,
+                "90": 0.61
+            },
+            "fertility_rates": {
+                "20": 0.1,
+                "30": 0.09
+            },
+            "income_distribution": {
+                "low": 0.55,
+                "middle": 0.4,
+                "high": 0.05
+            },
+            "migration_rate": -0.001,
+            "neighbors": [
+                10,
+                25
+            ],
+            "initial_population": 225,
+            "initial_languages": {
+                "Urdu": 0.08,
+                "Punjabi": 0.45,
+                "English": 0.03
+            }
+        },
+        {
+            "id": 27,
+            "name": "Vietnam",
+            "gdp_per_capita": 3756,
+            "life_expectancy": {
+                "0": 0.996,
+                "10": 0.996,
+                "20": 0.995,
+                "30": 0.993,
+                "40": 0.99,
+                "50": 0.985,
+                "60": 0.975,
+                "70": 0.95,
+                "80": 0.9,
+                "90": 0.78
+            },
+            "fertility_rates": {
+                "20": 0.06,
+                "30": 0.05
+            },
+            "income_distribution": {
+                "low": 0.3,
+                "middle": 0.6,
+                "high": 0.1
+            },
+            "migration_rate": -0.0003,
+            "neighbors": [
+                5
+            ],
+            "initial_population": 98,
+            "initial_languages": {
+                "Vietnamese": 0.98,
+                "English": 0.15
+            }
+        },
+        {
+            "id": 28,
+            "name": "Thailand",
+            "gdp_per_capita": 7806,
+            "life_expectancy": {
+                "0": 0.997,
+                "10": 0.997,
+                "20": 0.996,
+                "30": 0.994,
+                "40": 0.991,
+                "50": 0.986,
+                "60": 0.975,
+                "70": 0.95,
+                "80": 0.9,
+                "90": 0.78
+            },
+            "fertility_rates": {
+                "20": 0.04,
+                "30": 0.04
+            },
+            "income_distribution": {
+                "low": 0.3,
+                "middle": 0.6,
+                "high": 0.1
+            },
+            "migration_rate": 0.0001,
+            "neighbors": [
+                27
+            ],
+            "initial_population": 70,
+            "initial_languages": {
+                "Thai": 0.97,
+                "English": 0.27
+            }
+        }
+    ]
+}
