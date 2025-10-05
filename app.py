@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import pycountry
 from streamlit_plotly_events import plotly_events
 from simulation.main import setup_from_config
@@ -10,16 +11,36 @@ st.set_page_config(layout="wide")
 
 DISPLAY_POP_SCALE = 100
 
-st.title("8bSim - Population and Language Dynamics Simulation")
-st.caption(
-    f"Population figures are displayed at ×{DISPLAY_POP_SCALE} relative to the underlying agent counts."
-)
+st.title("8bSim - Language Infection and Population Dynamics")
+st.caption("Use World Settings to tune dynamics. The world map shows each country's dominant language prevalence with rich tooltips.")
 
 
 # --- Helper Functions ---
 @st.cache_data
 def get_iso_alpha(country_name):
-    """Get ISO alpha-3 code for a country name."""
+    """Get ISO alpha-3 code for a country name with common alias fallbacks."""
+    ALIASES = {
+        "United States": "USA",
+        "United States of America": "USA",
+        "Russia": "RUS",
+        "Russian Federation": "RUS",
+        "United Kingdom": "GBR",
+        "UK": "GBR",
+        "South Korea": "KOR",
+        "Korea, Republic of": "KOR",
+        "North Korea": "PRK",
+        "Iran": "IRN",
+        "Iran, Islamic Republic of": "IRN",
+        "Turkey": "TUR",
+        "Vietnam": "VNM",
+        "Viet Nam": "VNM",
+        "Egypt": "EGY",
+        "Saudi Arabia": "SAU",
+        "Côte d’Ivoire": "CIV",
+        "Cote d'Ivoire": "CIV",
+    }
+    if country_name in ALIASES:
+        return ALIASES[country_name]
     try:
         return pycountry.countries.search_fuzzy(country_name)[0].alpha_3
     except LookupError:
@@ -33,13 +54,15 @@ def format_population(population_value):
 
 
 def prepare_map_dataframe(sim, stats):
-    """Prepare a dataframe for the choropleth map."""
+    """Prepare a dataframe for the choropleth map, always using dominant language prevalence as color."""
     map_rows = []
     for country_id, country_stats in stats.items():
         country_name = sim.countries[country_id].name
         iso_code = get_iso_alpha(country_name)
         if not iso_code:
             continue
+        # Normalize ISO codes to uppercase alpha-3 for Plotly
+        iso_code = str(iso_code).upper()
 
         population = country_stats["population"]
         lang_prev = country_stats.get("language_prevalence", {}) or {}
@@ -57,70 +80,63 @@ def prepare_map_dataframe(sim, stats):
         else:
             languages_tooltip = "Languages: Data unavailable"
 
+        # Dominant language and prevalence
+        dom_lang = None
+        dom_prev = 0.0
+        if lang_prev:
+            dom_id, dom_prev = max(lang_prev.items(), key=lambda kv: kv[1])
+            dom_lang = sim.languages.get(dom_id).name if dom_id in sim.languages else "Unknown"
+        # Color value is dominant language prevalence (%)
+        value = dom_prev * 100.0
+        colorbar = "Dominant Language Prevalence (%)"
+
         map_rows.append(
             {
                 "iso_alpha": iso_code,
                 "country": country_name,
-                "population": population,
-                "population_display": format_population(population),
+                "value": value,
                 "languages_tooltip": languages_tooltip,
+                "population_display": format_population(population),
+                "colorbar": colorbar,
+                "dominant_language": dom_lang or "N/A",
+                "dominant_prevalence": f"{dom_prev*100:.1f}%",
             }
         )
 
     map_df = pd.DataFrame(map_rows)
-    if not map_df.empty:
-        map_df["display_population"] = map_df["population"] * DISPLAY_POP_SCALE
     return map_df
 
 
-def render_population_map(map_df, title, key):
-    """Render an interactive population map and return the clicked country name."""
+def render_map(map_df, title, key):
+    """Render a choropleth map using Plotly Express (more reliable)."""
     if map_df.empty:
-        st.info("Population data will appear once the simulation produces results.")
+        st.info("Data will appear once the simulation produces results.")
         return None
 
-    fig = go.Figure(
-        data=go.Choropleth(
-            locations=map_df["iso_alpha"],
-            z=map_df["display_population"],
-            text=map_df["country"],
-            colorscale="Blues",
-            autocolorscale=False,
-            reversescale=False,
-            marker_line_color="darkgray",
-            marker_line_width=0.5,
-            colorbar_title=f"Population (×{DISPLAY_POP_SCALE})",
-            customdata=map_df[["population_display", "languages_tooltip"]],
-            hovertemplate=(
-                "<b>%{text}</b><br>"
-                "Population: %{customdata[0]}<br>"
-                "%{customdata[1]}<extra></extra>"
-            ),
-        )
+    range_color = (0, 100)
+    fig = px.choropleth(
+        map_df,
+        locations="iso_alpha",
+        color="value",
+        hover_name="country",
+        hover_data={
+            "value": ":.2f",
+            "population_display": True,
+            "languages_tooltip": True,
+            "dominant_language": True,
+            "dominant_prevalence": True,
+            "iso_alpha": False,
+        },
+        color_continuous_scale="Viridis",
+        range_color=range_color,
+        projection="natural earth",
     )
     fig.update_layout(
-        title_text=title,
-        geo=dict(
-            showframe=False,
-            showcoastlines=False,
-            projection_type="equirectangular",
-        ),
+        title=title,
         margin=dict(l=0, r=0, t=40, b=0),
+        coloraxis_colorbar=dict(title=map_df["colorbar"].iloc[0] if not map_df.empty else ""),
     )
-
-    clicked_points = plotly_events(
-        fig,
-        click_event=True,
-        hover_event=False,
-        select_event=False,
-        key=key,
-    )
-    if clicked_points:
-        location = clicked_points[0].get("location")
-        if location:
-            match = map_df.loc[map_df["iso_alpha"] == location]
-            if not match.empty:
-                return match.iloc[0]["country"]
+    st.plotly_chart(fig, use_container_width=True)
     return None
 
 
@@ -131,6 +147,8 @@ if "history" not in st.session_state:
     st.session_state.history = None
 if "sim" not in st.session_state:
     st.session_state.sim = None
+if "econ_history" not in st.session_state:
+    st.session_state.econ_history = None
 if "selected_country_index" not in st.session_state:
     st.session_state.selected_country_index = 0
 
@@ -156,88 +174,97 @@ if st.sidebar.button("Run Simulation", disabled=st.session_state.get("running", 
 
         map_placeholder = st.empty()
         charts_placeholder = st.empty()
+        progress = st.progress(0, text="Initializing...")
 
         history = []
+        econ_history = []
 
         country_names = [c.name for c in sim.countries.values()]
-        selected_country_name_live = st.sidebar.selectbox(
-            "Select a country to view live",
-            country_names,
-            key="live_country_select",
-        )
+
+        # Base key for the live map; we'll append the year to ensure uniqueness within a single run
+        LIVE_MAP_KEY = "live_map"
 
         for year in range(num_years):
             total_migrations = sim.run_step()
             stats = sim.get_stats()
+            econ_stats = sim.get_economy_stats()
             history.append(stats)
+            econ_history.append(econ_stats)
 
             # --- Update Live Metrics ---
             world_pop = sum(c_stats["population"] for c_stats in stats.values())
             year_text.metric("Year", f"{year + 1}/{num_years}")
             pop_text.metric("World Population", format_population(world_pop))
             migration_text.metric("Migrations This Year", f"{total_migrations:,}")
+            progress.progress(int(((year + 1) / num_years) * 100), text=f"Year {year + 1} of {num_years}")
 
             # --- Update Live Map ---
             map_df = prepare_map_dataframe(sim, stats)
+            # Clear previous map before rendering a new one in the same run to avoid duplicate keys
+            map_placeholder.empty()
             with map_placeholder.container():
-                clicked_country_live = render_population_map(
-                    map_df, "World Population Map (Live)", "live_map"
-                )
-            if clicked_country_live and clicked_country_live in country_names:
-                st.session_state.selected_country_index = country_names.index(clicked_country_live)
-                st.session_state.live_country_select = clicked_country_live
-                selected_country_name_live = clicked_country_live
+                _ = render_map(map_df, "World Map (Live)", f"{LIVE_MAP_KEY}_{year}")
+            # Clicks are optional now; we render all countries below regardless
 
             # --- Update Live Charts for Selected Country ---
             with charts_placeholder.container():
-                if selected_country_name_live:
-                    selected_country = next(
-                        c for c in sim.countries.values() if c.name == selected_country_name_live
-                    )
+                st.subheader("Country Charts (Live)")
+                for country in sim.countries.values():
+                    with st.expander(country.name, expanded=False):
+                        # Population Chart
+                        pop_history_scaled = [
+                            year_stats[country.id]["population"] * DISPLAY_POP_SCALE
+                            for year_stats in history
+                        ]
+                        pop_chart = pd.DataFrame(
+                            {
+                                "Year": range(1, len(pop_history_scaled) + 1),
+                                f"Population (×{DISPLAY_POP_SCALE})": pop_history_scaled,
+                            }
+                        )
+                        st.line_chart(pop_chart, x="Year", y=f"Population (×{DISPLAY_POP_SCALE})")
 
-                    # Population Chart
-                    st.subheader(f"Population: {selected_country.name}")
-                    pop_history_scaled = [
-                        year_stats[selected_country.id]["population"] * DISPLAY_POP_SCALE
-                        for year_stats in history
-                    ]
-                    pop_chart = pd.DataFrame(
-                        {
-                            "Year": range(1, len(pop_history_scaled) + 1),
-                            f"Population (×{DISPLAY_POP_SCALE})": pop_history_scaled,
-                        }
-                    )
-                    st.line_chart(pop_chart, x="Year", y=f"Population (×{DISPLAY_POP_SCALE})")
+                        # Language Chart
+                        lang_history = [
+                            year_stats[country.id]["language_prevalence"] for year_stats in history
+                        ]
 
-                    # Language Chart
-                    st.subheader(f"Languages: {selected_country.name}")
-                    lang_history = [
-                        year_stats[selected_country.id]["language_prevalence"] for year_stats in history
-                    ]
+                        all_lang_names = [lang.name for lang in sim.languages.values()]
+                        lang_data = {lang_name: [0] * len(history) for lang_name in all_lang_names}
 
-                    all_lang_names = [lang.name for lang in sim.languages.values()]
-                    lang_data = {lang_name: [0] * len(history) for lang_name in all_lang_names}
+                        for i, year_data in enumerate(lang_history):
+                            for lang_id, prevalence in year_data.items():
+                                lang_name = sim.languages[lang_id].name
+                                if lang_name in lang_data:
+                                    lang_data[lang_name][i] = prevalence * 100
 
-                    for i, year_data in enumerate(lang_history):
-                        for lang_id, prevalence in year_data.items():
-                            lang_name = sim.languages[lang_id].name
-                            if lang_name in lang_data:
-                                lang_data[lang_name][i] = prevalence * 100
+                        lang_df = pd.DataFrame(lang_data)
+                        lang_df["Year"] = range(1, len(history) + 1)
 
-                    lang_df = pd.DataFrame(lang_data)
-                    lang_df["Year"] = range(1, len(history) + 1)
+                        active_lang_cols = lang_df.drop(columns="Year").columns[
+                            (lang_df.drop(columns="Year") != 0).any()
+                        ]
+                        cols_to_show = ["Year"] + [col for col in active_lang_cols if col != "Year"]
+                        lang_df = lang_df[cols_to_show]
 
-                    active_lang_cols = lang_df.columns[
-                        (lang_df.drop(columns="Year") != 0).any()
-                    ]
-                    cols_to_show = ["Year"] + [col for col in active_lang_cols if col != "Year"]
-                    lang_df = lang_df[cols_to_show]
+                        st.line_chart(lang_df, x="Year")
 
-                    st.line_chart(lang_df, x="Year")
+                        # Economy Charts: GDPpc proxy and Production Index
+                        econ_series = [year_stats.get(country.id, {}) for year_stats in econ_history]
+                        gdp_pc = [row.get("gdp_pc_proxy", 0.0) for row in econ_series]
+                        prod_idx = [row.get("production_index", 1.0) for row in econ_series]
+                        econ_df = pd.DataFrame({
+                            "Year": range(1, len(econ_series) + 1),
+                            "GDP per Capita (proxy)": gdp_pc,
+                            "Production Index": prod_idx,
+                        })
+                        st.line_chart(econ_df, x="Year")
 
         st.session_state.history = history
+        st.session_state.econ_history = econ_history
         st.session_state.running = False
         st.success("Simulation Complete!")
+        progress.empty()
         # Rerun to clear live view and show final results
         st.rerun()
 
@@ -248,6 +275,7 @@ if (
 ):
     sim = st.session_state.sim
     history = st.session_state.history
+    econ_history = st.session_state.econ_history or []
     num_years_run = len(history)
 
     # --- Display Final Results ---
@@ -264,80 +292,60 @@ if (
         final_year_stats = history[-1]
         final_map_df = prepare_map_dataframe(sim, final_year_stats)
         with st.container():
-            clicked_country_final = render_population_map(
-                final_map_df, "Final Year Population Map", "final_map"
-            )
-        if clicked_country_final and clicked_country_final in country_names:
-            st.session_state.selected_country_index = country_names.index(clicked_country_final)
+            _ = render_map(final_map_df, "Final Year Map", "final_map")
+        # Render charts for all countries
+        st.subheader("Country Charts (Final)")
+        for country in sim.countries.values():
+            with st.expander(country.name, expanded=False):
+                # Population Chart
+                pop_history_scaled = [
+                    year_stats[country.id]["population"] * DISPLAY_POP_SCALE
+                    for year_stats in history
+                ]
+                pop_chart = pd.DataFrame(
+                    {
+                        "Year": range(1, num_years_run + 1),
+                        f"Population (×{DISPLAY_POP_SCALE})": pop_history_scaled,
+                    }
+                )
+                st.line_chart(pop_chart, x="Year", y=f"Population (×{DISPLAY_POP_SCALE})")
 
-        # --- Country Selector with Arrows ---
-        col1, col2, col3 = st.columns([1, 3, 1])
-        with col1:
-            if st.button("⬅️ Previous"):
-                st.session_state.selected_country_index = (
-                    st.session_state.selected_country_index - 1 + num_countries
-                ) % num_countries
-                st.rerun()
-        with col3:
-            if st.button("Next ➡️"):
-                st.session_state.selected_country_index = (
-                    st.session_state.selected_country_index + 1
-                ) % num_countries
-                st.rerun()
+                # Language Prevalence Chart
+                lang_history = [
+                    year_stats[country.id]["language_prevalence"] for year_stats in history
+                ]
 
-        selected_index = st.session_state.selected_country_index % num_countries
-        selected_country_name = country_names[selected_index]
-        with col2:
-            st.markdown(
-                f"<h3 style='text-align: center;'>{selected_country_name}</h3>",
-                unsafe_allow_html=True,
-            )
+                all_lang_names = [lang.name for lang in sim.languages.values()]
+                lang_data = {lang_name: [0] * num_years_run for lang_name in all_lang_names}
 
-        # Get selected country object
-        selected_country = next(
-            (c for c in sim.countries.values() if c.name == selected_country_name), None
-        )
+                for i, year_data in enumerate(lang_history):
+                    for lang_id, prevalence in year_data.items():
+                        lang_name = sim.languages[lang_id].name
+                        if lang_name in lang_data:
+                            lang_data[lang_name][i] = prevalence * 100
 
-        if selected_country:
-            # --- Population Chart ---
-            st.subheader(f"Population Over Time: {selected_country.name}")
-            pop_history_scaled = [
-                year_stats[selected_country.id]["population"] * DISPLAY_POP_SCALE
-                for year_stats in history
-            ]
-            pop_chart = pd.DataFrame(
-                {
-                    "Year": range(1, num_years_run + 1),
-                    f"Population (×{DISPLAY_POP_SCALE})": pop_history_scaled,
-                }
-            )
-            st.line_chart(pop_chart, x="Year", y=f"Population (×{DISPLAY_POP_SCALE})")
+                lang_df = pd.DataFrame(lang_data)
+                lang_df["Year"] = range(1, num_years_run + 1)
 
-            # --- Language Prevalence Chart ---
-            st.subheader(f"Language Prevalence Over Time: {selected_country.name}")
-            lang_history = [
-                year_stats[selected_country.id]["language_prevalence"] for year_stats in history
-            ]
+                active_lang_cols = lang_df.drop(columns="Year").columns[
+                    (lang_df.drop(columns="Year") != 0).any()
+                ]
+                cols_to_show = ["Year"] + [col for col in active_lang_cols if col != "Year"]
+                lang_df = lang_df[cols_to_show]
 
-            all_lang_names = [lang.name for lang in sim.languages.values()]
-            lang_data = {lang_name: [0] * num_years_run for lang_name in all_lang_names}
+                st.line_chart(lang_df, x="Year")
 
-            for i, year_data in enumerate(lang_history):
-                for lang_id, prevalence in year_data.items():
-                    lang_name = sim.languages[lang_id].name
-                    if lang_name in lang_data:
-                        lang_data[lang_name][i] = prevalence * 100
-
-            lang_df = pd.DataFrame(lang_data)
-            lang_df["Year"] = range(1, num_years_run + 1)
-
-            active_lang_cols = lang_df.columns[
-                (lang_df.loc[:, lang_df.columns != "Year"] != 0).any()
-            ]
-            cols_to_show = ["Year"] + [col for col in active_lang_cols if col != "Year"]
-            lang_df = lang_df[cols_to_show]
-
-            st.line_chart(lang_df, x="Year")
+                # Economy Charts
+                if econ_history:
+                    econ_series = [year_stats.get(country.id, {}) for year_stats in econ_history]
+                    gdp_pc = [row.get("gdp_pc_proxy", 0.0) for row in econ_series]
+                    prod_idx = [row.get("production_index", 1.0) for row in econ_series]
+                    econ_df = pd.DataFrame({
+                        "Year": range(1, len(econ_series) + 1),
+                        "GDP per Capita (proxy)": gdp_pc,
+                        "Production Index": prod_idx,
+                    })
+                    st.line_chart(econ_df, x="Year")
 
         # --- Final Stats Table ---
         st.subheader("Final Statistics by Country")

@@ -18,7 +18,8 @@ class Agent:
 class Country:
     """Represents a country in the simulation."""
     def __init__(self, country_id: int, name: str, gdp_per_capita: float, life_expectancy: dict, 
-                 fertility_rates: dict, income_distribution: dict, migration_rate: float, neighbors: list):
+                 fertility_rates: dict, income_distribution: dict, migration_rate: float, neighbors: list,
+                 initial_population: int | None = None, strategy: list | None = None):
         self.id = country_id
         self.name = name
         self.gdp_per_capita = gdp_per_capita
@@ -27,6 +28,8 @@ class Country:
         self.income_distribution = income_distribution
         self.migration_rate = migration_rate
         self.neighbor_ids = neighbors
+        self.initial_population = initial_population if initial_population is not None else 0
+        self.strategy = strategy or []  # list of steps/actions with optional duration and intensity
         self.agents = []
         self.language_prevalence = {}
 

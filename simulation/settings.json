@@ -1,0 +1,36 @@
+{
+  "economy": {
+    "alpha": 0.33,
+    "delta": 0.05,
+    "g_A": 0.01,
+    "sigma_shock": 0.015,
+    "k_y_ratio_init": 3.0,
+    "labor_share_working_age": 0.65,
+    "neighbor_spillover": 0.1,
+    "investment_rate_base": 0.22,
+    "investment_rate_rich": 0.26,
+    "rich_threshold": 30000.0
+  },
+  "language": {
+    "w_local": 1.0,
+    "w_neighbor": 0.6,
+    "w_global": 0.45,
+    "aggression": 1.25,
+    "campaign_base": 0.02,
+    "campaign_global_weight": 0.15,
+    "campaign_neighbor_weight": 0.1,
+    "max_langs_per_agent": 3
+  },
+  "population": {
+    "prod_to_births_multiplier": 0.7500000000000002,
+    "baseline_target_growth": 0.013000000000000005,
+    "min_target_growth": -0.01,
+    "max_target_growth": 0.03
+  },
+  "migration": {
+    "global_wave_probability": 0.1,
+    "global_wave_fraction": 0.001,
+    "gdp_weight": 1.0,
+    "language_bonus": 0.5
+  }
+}

@@ -1,6 +1,7 @@
 import math
 import random
 from .simulation_models import Agent
+from .settings import load_settings
 
 class Simulation:
     """Manages the overall simulation and its yearly steps."""
@@ -9,18 +10,123 @@ class Simulation:
         self.languages = {l.id: l for l in languages}
         self.current_year = 0
         self.scale_factor = scale_factor
+        self.settings = load_settings()
+        # Macro dynamics
+        self.production_index = {c.id: 1.0 for c in countries}  # multiplicative index (starts at 1.0)
+        self.production_growth = {}  # per-country annual growth rate for production index
+        self.population_growth = {}  # per-country target net population growth rate (exogenous target)
+        # Language influence context (computed each step)
+        self._lang_neighbor_prevalence = {}
+        self._lang_global_power = {}
+        # Economy state per country: capital K and productivity A
+        self._capital = {}
+        self._tfp = {}
         
-        # Scale up initial population
-        for country in self.countries.values():
-            # This is a simplified way to scale. A more robust implementation
-            # might involve creating new agents with varied characteristics.
-            current_pop = len(country.agents)
-            if current_pop > 0:
-                num_to_add = (current_pop * self.scale_factor) - current_pop
-                new_agents = random.choices(country.agents, k=num_to_add)
-                country.agents.extend(new_agents)
+        # Establish next agent id before any scaling
+        cur_max_id = -1
+        for c in self.countries.values():
+            for a in c.agents:
+                if a.id > cur_max_id:
+                    cur_max_id = a.id
+        self.next_agent_id = int(cur_max_id + 1)
 
-        self.next_agent_id = sum(len(c.agents) for c in self.countries.values()) + 1
+        # Scale up initial population by cloning, not by duplicating references
+        for country in self.countries.values():
+            current_pop = len(country.agents)
+            if current_pop > 0 and self.scale_factor > 1:
+                num_to_add = (current_pop * self.scale_factor) - current_pop
+                if num_to_add > 0:
+                    bases = random.choices(country.agents, k=num_to_add)
+                    for base in bases:
+                        clone = self._clone_agent_from(base, country.id)
+                        country.agents.append(clone)
+
+        # Initialize production and population growth matrices with reasonable defaults
+        for c in countries:
+            # Production growth: mildly higher for emerging economies, taper for rich
+            # Normalize GDP per capita roughly into [0, 1]
+            gdp = max(500.0, float(c.gdp_per_capita))
+            gdp_norm = min(1.0, max(0.0, (gdp - 500.0) / 70000.0))
+            # Base between 0.8% and 2.5%
+            prod_rate = 0.025 - 0.017 * gdp_norm
+            self.production_growth[c.id] = max(0.005, min(0.03, prod_rate))
+
+            # Population target net growth: derive from fertility mix, bounded
+            avg_fert = 0.0
+            if getattr(c, 'fertility_rates', None):
+                try:
+                    avg_fert = sum(c.fertility_rates.values()) / max(1, len(c.fertility_rates))
+                except Exception:
+                    avg_fert = 0.06
+            # Start at slight positive, adjust by fertility relative to ~0.06 baseline, small penalty for very high GDP (aging)
+            pop_rate = 0.003 + (avg_fert - 0.06) * 0.5 - gdp_norm * 0.002
+            self.population_growth[c.id] = max(-0.01, min(0.03, pop_rate))
+
+            # Initialize economy state (K and A) using settings
+            econ = self.settings.get("economy", {})
+            k_y = float(econ.get("k_y_ratio_init", 3.0))
+            # Proxy Y0 ~ GDPpc * population
+            Y0 = gdp * max(1, len(c.agents))
+            K0 = max(1.0, k_y * Y0)
+            self._capital[c.id] = K0
+            self._tfp[c.id] = 1.0  # normalized starting TFP
+
+        # Initialize basic geopolitics relations matrix [-1,1]
+        self._relations = self._init_geopolitics_relations()
+
+    def _clone_agent_from(self, base_agent: Agent, country_id: int) -> Agent:
+        """Clone an agent with a new unique id (no shared references)."""
+        a = Agent(self.next_agent_id, country_id, base_agent.age, base_agent.economic_stratum)
+        self.next_agent_id += 1
+        a.alive = True
+        a.education_level = base_agent.education_level
+        a.languages = list(base_agent.languages)
+        return a
+
+    def _init_geopolitics_relations(self):
+        """Simple static geopolitics map using neighbor friendliness and a few rivalries."""
+        relations = {cid: {oid: 0.0 for oid in self.countries.keys()} for cid in self.countries.keys()}
+        # Friendly baseline for neighbors
+        geo_cfg = self.settings.get("geopolitics", {})
+        neigh_bonus = float(geo_cfg.get("neighbor_friend_bonus", 0.2))
+        for cid, c in self.countries.items():
+            for nid in c.neighbor_ids:
+                if nid in self.countries:
+                    relations[cid][nid] = min(1.0, relations[cid][nid] + neigh_bonus)
+                    relations[nid][cid] = min(1.0, relations[nid][cid] + neigh_bonus)
+        # A few rivalries by name
+        name_to_id = {c.name: c.id for c in self.countries.values()}
+        rival_entries = geo_cfg.get("rivalries", [])
+        for entry in rival_entries:
+            a, b, w = entry.get("a"), entry.get("b"), float(entry.get("w", -0.3))
+            if a in name_to_id and b in name_to_id:
+                ia, ib = name_to_id[a], name_to_id[b]
+                relations[ia][ib] = w
+                relations[ib][ia] = w
+        # Explicit overrides by ids if provided
+        overrides = geo_cfg.get("relations", {}) or {}
+        try:
+            for sa, row in overrides.items():
+                ca = int(sa)
+                for sb, val in row.items():
+                    cb = int(sb)
+                    if ca in relations and cb in relations[ca]:
+                        relations[ca][cb] = float(val)
+        except Exception:
+            pass
+        return relations
+
+    def _rel(self, a: int, b: int) -> float:
+        if not self.settings.get("geopolitics", {}).get("enabled", True):
+            return 0.0
+        scale = float(self.settings.get("geopolitics", {}).get("relation_scale", 1.0))
+        return scale * float(self._relations.get(a, {}).get(b, 0.0))
+
+    def _geo_weight(self, a: int, b: int) -> float:
+        """Convert relation [-1,1] to a non-negative weight for averaging/biasing."""
+        cfg = self.settings.get("geopolitics", {})
+        floor = float(cfg.get("migration_geo_bias_floor", 0.1))
+        return max(floor, 1.0 + self._rel(a, b))
 
     def _age_and_mortality(self):
         """Ages all agents and handles mortality."""
@@ -30,6 +136,9 @@ class Simulation:
                 agent.age += 1
                 age_group = (agent.age // 10) * 10
                 survival_prob = country.life_expectancy.get(age_group, 0.99)
+                # Production buffers mortality slightly
+                prod_buff = 1.0 + 0.01 * (self.production_index.get(country.id, 1.0) - 1.0)
+                survival_prob = max(0.0, min(1.0, survival_prob * prod_buff))
                 if random.random() < survival_prob:
                     survivors.append(agent)
             country.agents = survivors
@@ -46,6 +155,12 @@ class Simulation:
             for age_group, rate in country.fertility_rates.items():
                 num_in_group = len([p for p in potential_parents if p.age // 10 * 10 == age_group])
                 num_births += int(num_in_group * rate)
+
+            # Adjust births by production and population target growth (configurable)
+            prod_factor = float(self.settings.get("population", {}).get("prod_to_births_multiplier", 0.5))
+            prod_mult = 1.0 + prod_factor * (self.production_index.get(country.id, 1.0) - 1.0)
+            growth_mult = 1.0 + max(0.0, self.population_growth.get(country.id, 0.0))
+            num_births = int(num_births * prod_mult * growth_mult)
 
             for _ in range(num_births):
                 stratum = self._get_random_stratum(country.income_distribution)
@@ -74,85 +189,96 @@ class Simulation:
         return list(distribution.keys())[-1]
 
     def _language_acquisition(self):
-        """Handles language acquisition for agents with non-linear adoption dynamics."""
-        stratum_multipliers = {"high": 1.5, "middle": 1.0, "low": 0.75}
-        education_multipliers = {0: 0.8, 1: 1.0, 2: 1.2, 3: 1.5}
-        base_prob_child, base_prob_adult = 0.1, 0.05
-        network_steepness = 8
+        """Language acquisition modeled as disease-like spread with cap of 3 languages per agent.
+
+        For each agent and each non-spoken language in their country, compute an adoption
+        probability similar to infection: p = 1 - exp(-beta * prevalence * contacts) * susceptibility,
+        where susceptibility depends on age, education, and stratum. Each agent adopts at most
+        one new language per year, and total known languages are capped at 3.
+        Cross-country diffusion is incorporated via neighbor prevalence and global language power.
+        """
+        # Base transmission/contact parameters
+        base_beta_child = 0.25  # higher for children
+        base_beta_adult = 0.12
+        contacts_per_year = 10  # average meaningful exposures
+
+        # Susceptibility multipliers
+        stratum_mult = {"high": 1.15, "middle": 1.0, "low": 0.9}
+        education_mult = {0: 0.9, 1: 1.0, 2: 1.1, 3: 1.25}
+
+        # Diffusion weights (configurable)
+        lang_cfg = self.settings.get("language", {})
+        w_local = float(lang_cfg.get("w_local", 1.0))
+        w_neighbor = float(lang_cfg.get("w_neighbor", 0.6))
+        w_global = float(lang_cfg.get("w_global", 0.45))  # "aggressive" global push
+        aggression = float(lang_cfg.get("aggression", 1.25))  # scales infection probability for powerful languages
 
         for country in self.countries.values():
             if not country.language_prevalence:
                 continue
 
-            prevalence_cache = {
-                lang_id: country.language_prevalence.get(lang_id, 0.0)
-                for lang_id in country.language_prevalence
-            }
+            prevalence = country.language_prevalence
+            neighbor_prev = self._lang_neighbor_prevalence.get(country.id, {})
 
             for agent in country.agents:
-                if len(agent.languages) >= 3:
+                # Cap at configurable max languages per agent
+                if len(agent.languages) >= int(lang_cfg.get("max_langs_per_agent", 3)):
                     continue
 
-                age_factor = (
-                    base_prob_child
-                    if 0 <= agent.age <= 10
-                    else base_prob_adult * max(0, 1 - (agent.age - 11) / 90)
-                )
-                social_factor = stratum_multipliers.get(agent.economic_stratum, 1.0)
-                education_factor = education_multipliers.get(agent.education_level, 1.0)
-
-                agent_lang_ids = {lang.id for lang in agent.languages}
-                candidate_lang_ids = [
-                    lang_id
-                    for lang_id in country.language_prevalence
-                    if lang_id not in agent_lang_ids
-                ]
-                if not candidate_lang_ids:
-                    continue
-
-                network_pressures = [
-                    1
-                    / (1 + math.exp(-network_steepness * (prevalence_cache.get(lang_id, 0.0) - 0.35)))
-                    for lang_id in candidate_lang_ids
-                ]
-                diversity_interests = [
-                    (1 - prevalence_cache.get(lang_id, 0.0)) ** 1.5
-                    for lang_id in candidate_lang_ids
-                ]
-
-                network_pressure = max(network_pressures) if network_pressures else 0.0
-                diversity_interest = (
-                    sum(diversity_interests) / len(diversity_interests)
-                    if diversity_interests
-                    else 0.0
+                # Susceptibility based on age, education, stratum
+                beta = base_beta_child if agent.age <= 12 else base_beta_adult
+                age_tail_off = 1.0 if agent.age <= 30 else max(0.3, 1.0 - (agent.age - 30) / 80)
+                susceptibility = (
+                    beta
+                    * stratum_mult.get(agent.economic_stratum, 1.0)
+                    * education_mult.get(agent.education_level, 1.0)
+                    * age_tail_off
                 )
 
-                pressure_multiplier = 0.55 + 0.35 * network_pressure + 0.1 * diversity_interest
-                modified_prob = age_factor * social_factor * education_factor * pressure_multiplier
-                modified_prob = max(0.0, min(0.75, modified_prob))
-
-                if random.random() >= modified_prob:
+                spoken = {l.id for l in agent.languages}
+                # Consider all known languages in system to allow foreign adoption
+                candidate_ids = [lid for lid in self.languages.keys() if lid not in spoken]
+                if not candidate_ids:
                     continue
 
-                candidate_langs = [self.languages[lang_id] for lang_id in candidate_lang_ids]
-                weights = []
-                for lang in candidate_langs:
-                    prevalence = prevalence_cache.get(lang.id, 0.0)
-                    network_weight = 1 / (
-                        1 + math.exp(-network_steepness * (prevalence - 0.35))
-                    )
-                    saturation_penalty = 0.6 + 0.4 * (1 - prevalence)
-                    rarity_boost = (1 - prevalence) ** 1.2
-                    combined_weight = (network_weight ** 1.5) * saturation_penalty + 0.3 * rarity_boost
-                    weights.append(max(1e-3, combined_weight))
+                # Compute per-language infection probability (curved response)
+                probs = []
+                langs = []
+                for lid in candidate_ids:
+                    p_local = prevalence.get(lid, 0.0)
+                    p_neighbor = neighbor_prev.get(lid, 0.0)
+                    p_global = self._lang_global_power.get(lid, 0.0)
+                    # Effective prevalence combining sources
+                    p_eff = w_local * p_local + w_neighbor * p_neighbor + w_global * p_global
+                    if p_eff <= 0:
+                        continue
+                    # Aggression boost for globally strong languages
+                    power_boost = 1.0 + aggression * p_global
+                    # Avoid runaway: reduce effect if already knows many languages
+                    saturation = 1.0 - (len(agent.languages) / max(1.0, float(self.settings.get("language", {}).get("max_langs_per_agent", 3))))
+                    # Curved response: logistic-like curve to avoid linearity
+                    # base hazard h = susceptibility * p_eff * contacts
+                    h = susceptibility * p_eff * contacts_per_year
+                    # Curve: p = (1 / (1 + exp(-h))) - 0.5 adjusted to [0,1], or use softplus approximation
+                    p_infect = 1.0 / (1.0 + math.exp(-h))
+                    p_infect *= power_boost
+                    p_infect = max(0.0, min(1.0, p_infect * saturation))
+                    if p_infect > 1e-4:
+                        probs.append(p_infect)
+                        langs.append(self.languages[lid])
 
-                total_weight = sum(weights)
-                if total_weight <= 0:
+                if not probs:
                     continue
 
-                normalized_weights = [w / total_weight for w in weights]
-                new_language = random.choices(candidate_langs, weights=normalized_weights, k=1)[0]
-                agent.languages.append(new_language)
+                # Choose at most one new language, weighted by probability
+                total = sum(probs)
+                weights = [q / total for q in probs]
+                new_lang = random.choices(langs, weights=weights, k=1)[0]
+                agent.languages.append(new_lang)
+                # Enforce hard cap
+                max_langs = int(lang_cfg.get("max_langs_per_agent", 3))
+                if len(agent.languages) > max_langs:
+                    agent.languages = agent.languages[:max_langs]
 
     def _language_attrition(self):
         """Handles language attrition for agents."""
@@ -172,6 +298,48 @@ class Simulation:
                 for lang in langs_to_remove:
                     agent.languages.remove(lang)
 
+    def _language_campaigns(self):
+        """Aggressive global campaigns: globally dominant languages push to replace weaker ones."""
+        if not self._lang_global_power:
+            return
+        # Identify top global languages
+        top_langs = sorted(self._lang_global_power.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        top_ids = [lid for lid, _ in top_langs]
+        # Campaign intensity scales with global power
+        for country in self.countries.values():
+            if not country.agents:
+                continue
+            # Slightly stronger pressure if neighbors also speak it a lot
+            neighbor_prev = self._lang_neighbor_prevalence.get(country.id, {})
+            for agent in country.agents:
+                # Skip if already at cap and already speaks any top language
+                if any(l.id in top_ids for l in agent.languages) and len(agent.languages) >= 2:
+                    continue
+                for lid in top_ids:
+                    lang_cfg = self.settings.get("language", {})
+                    p_global = self._lang_global_power.get(lid, 0.0)
+                    p_neighbor = neighbor_prev.get(lid, 0.0)
+                    base = float(lang_cfg.get("campaign_base", 0.02))
+                    wg = float(lang_cfg.get("campaign_global_weight", 0.15))
+                    wn = float(lang_cfg.get("campaign_neighbor_weight", 0.10))
+                    pressure = base + wg * p_global + wn * p_neighbor  # annual chance to adopt via campaign
+                    if random.random() < pressure:
+                        # Adopt or replace weakest language (lowest local prevalence)
+                        new_lang = self.languages[lid]
+                        if new_lang.id not in [l.id for l in agent.languages]:
+                            max_langs = int(lang_cfg.get("max_langs_per_agent", 3))
+                            if len(agent.languages) < max_langs:
+                                agent.languages.append(new_lang)
+                            else:
+                                # Replace the language that is least prevalent locally
+                                weakest = min(
+                                    agent.languages,
+                                    key=lambda L: country.language_prevalence.get(L.id, 0.0)
+                                )
+                                agent.languages.remove(weakest)
+                                agent.languages.append(new_lang)
+                        break  # Only one campaign adoption per year per agent
+
     def get_stats(self):
         """Returns a dictionary with current simulation statistics."""
         stats = {}
@@ -183,14 +351,8 @@ class Simulation:
         return stats
 
     def run_step(self):
-        """Runs a single year of the simulation."""
-        self.current_year += 1
-        self.update_language_prevalence()
-        self._age_and_mortality()
-        self._births()
-        self._language_acquisition()
-        self._language_attrition()
-        self._migration()
+        """Runs a single year of the simulation (legacy entry point - kept for backward compatibility)."""
+        return self._run_step_impl()
 
     def update_language_prevalence(self):
         """Updates the language prevalence for all countries."""
@@ -203,17 +365,30 @@ class Simulation:
         migrated_agent_ids = set()
         total_migrations = 0
 
-        # Global migration event (small chance)
-        if random.random() < 0.1:  # 10% chance of a global migration wave each year
+        # Global migration event (configurable chance)
+        mig_cfg = self.settings.get("migration", {})
+        wave_p = float(mig_cfg.get("global_wave_probability", 0.1))
+        wave_frac = float(mig_cfg.get("global_wave_fraction", 0.001))
+        gdp_w = float(mig_cfg.get("gdp_weight", 1.0))
+        lang_bonus = float(mig_cfg.get("language_bonus", 0.5))
+
+        if random.random() < wave_p:
             all_agents = [agent for country in self.countries.values() for agent in country.agents]
-            num_global_migrants = int(len(all_agents) * 0.001)  # 0.1% of total population
+            num_global_migrants = int(len(all_agents) * wave_frac)
             
             # Ensure we don't sample more than available agents
             k = min(num_global_migrants, len(all_agents))
             if k > 0:
                 global_migrants = random.sample(all_agents, k=k)
+                # Deduplicate by agent id to avoid processing the same underlying object multiple times
+                seen_global = set()
+                unique_global_migrants = []
+                for a in global_migrants:
+                    if a.id not in seen_global:
+                        seen_global.add(a.id)
+                        unique_global_migrants.append(a)
 
-                for agent in global_migrants:
+                for agent in unique_global_migrants:
                     if agent.id in migrated_agent_ids:
                         continue
 
@@ -223,16 +398,20 @@ class Simulation:
                     destination_scores = {}
                     for dest_id, dest_country in self.countries.items():
                         if dest_id == source_country.id: continue
-                        gdp_ratio = dest_country.gdp_per_capita / source_country.gdp_per_capita
-                        bonus = 0.5 if any(lang.id in dest_country.language_prevalence for lang in agent.languages) else 0
-                        destination_scores[dest_id] = gdp_ratio * (1 + bonus)
+                        gdp_ratio = (dest_country.gdp_per_capita / max(1e-6, source_country.gdp_per_capita)) ** gdp_w
+                        bonus = lang_bonus if any(lang.id in dest_country.language_prevalence for lang in agent.languages) else 0
+                        # Geopolitics factor: tilt towards friends, away from rivals
+                        geo = self._geo_weight(source_country.id, dest_id)
+                        destination_scores[dest_id] = gdp_ratio * (1 + bonus) * geo
 
                     if not destination_scores: continue
                     best_dest_id = max(destination_scores, key=destination_scores.get)
 
                     agent.country_id = best_dest_id
                     migrants_by_destination[best_dest_id].append(agent)
-                    source_country.agents.remove(agent)
+                    # Guard against cases where the agent was already removed
+                    if agent in source_country.agents:
+                        source_country.agents.remove(agent)
                     migrated_agent_ids.add(agent.id)
                     total_migrations += 1
 
@@ -243,6 +422,11 @@ class Simulation:
                 continue
 
             num_migrants = int(len(source_country.agents) * abs(migration_rate))
+            # Cap emigration fraction per year to avoid mass exodus
+            if migration_rate < 0:
+                geo_cfg = self.settings.get("geopolitics", {})
+                cap_frac = float(geo_cfg.get("emigration_max_fraction", 0.2))
+                num_migrants = min(num_migrants, int(len(source_country.agents) * cap_frac))
             if num_migrants == 0 or not source_country.agents:
                 continue
             
@@ -258,34 +442,76 @@ class Simulation:
             
             k = min(k, len(potential_migrants_pool))
             potential_migrants = random.sample(potential_migrants_pool, k=k)
+            # Deduplicate by agent id within this source country selection
+            unique_potential = []
+            seen_ids = set()
+            for a in potential_migrants:
+                if a.id not in seen_ids:
+                    seen_ids.add(a.id)
+                    unique_potential.append(a)
 
             # If the rate is negative, it's emigration, and we don't need to calculate a destination
             if migration_rate < 0:
-                for agent in potential_migrants:
-                    source_country.agents.remove(agent)
+                for agent in unique_potential:
+                    if agent in source_country.agents:
+                        # Keep at least a small base population from this path
+                        min_floor = int(self.settings.get("geopolitics", {}).get("min_population_floor", 5))
+                        if len(source_country.agents) <= min_floor:
+                            break
+                        source_country.agents.remove(agent)
                     migrated_agent_ids.add(agent.id) # Also track emigrants
                     total_migrations += 1
                 continue  # Move to the next country
 
-            for agent in potential_migrants:
+            for agent in unique_potential:
                 destination_scores = {}
                 for dest_id in source_country.neighbor_ids:
+                    # Skip invalid neighbor ids or self
+                    if dest_id == source_country.id or dest_id not in self.countries:
+                        continue
                     dest_country = self.countries[dest_id]
-                    gdp_ratio = dest_country.gdp_per_capita / source_country.gdp_per_capita
-                    bonus = 0.5 if any(lang.id in dest_country.language_prevalence for lang in agent.languages) else 0
-                    destination_scores[dest_id] = gdp_ratio * (1 + bonus)
+                    gdp_ratio = (dest_country.gdp_per_capita / max(1e-6, source_country.gdp_per_capita)) ** gdp_w
+                    bonus = lang_bonus if any(lang.id in dest_country.language_prevalence for lang in agent.languages) else 0
+                    geo = self._geo_weight(source_country.id, dest_id)
+                    destination_scores[dest_id] = gdp_ratio * (1 + bonus) * geo
 
                 if not destination_scores: continue
                 best_dest_id = max(destination_scores, key=destination_scores.get)
 
                 agent.country_id = best_dest_id
                 migrants_by_destination[best_dest_id].append(agent)
-                source_country.agents.remove(agent)
+                if agent in source_country.agents:
+                    min_floor = int(self.settings.get("geopolitics", {}).get("min_population_floor", 5))
+                    if len(source_country.agents) <= min_floor:
+                        continue
+                    source_country.agents.remove(agent)
                 migrated_agent_ids.add(agent.id)
                 total_migrations += 1
 
+        # Apply overwrite effects at destination based on influx and density
         for country_id, new_arrivals in migrants_by_destination.items():
-            self.countries[country_id].agents.extend(new_arrivals)
+            dest = self.countries[country_id]
+            if new_arrivals:
+                dest.agents.extend(new_arrivals)
+                # If a large simultaneous influx relative to population density, boost the prevalence of migrants' top languages
+                pop = max(1, len(dest.agents))
+                influx_ratio = len(new_arrivals) / pop
+                if influx_ratio > 0.05:  # 5% sudden influx threshold
+                    # Count languages among arrivals
+                    lang_counts = {}
+                    for a in new_arrivals:
+                        for L in a.languages:
+                            lang_counts[L.id] = lang_counts.get(L.id, 0) + 1
+                    # Compute density factor (smaller countries more sensitive)
+                    density_factor = min(2.0, 0.5 + 0.5 * (1000000.0 / (1000.0 + pop)))
+                    # Increase production-linked acquisition next step by adjusting country prevalence immediately
+                    if lang_counts:
+                        total = sum(lang_counts.values())
+                        for lid, cnt in lang_counts.items():
+                            add_share = influx_ratio * density_factor * (cnt / total) * 0.5
+                            current = dest.language_prevalence.get(lid, 0.0)
+                            # Blend, keep within [0,1]
+                            dest.language_prevalence[lid] = max(0.0, min(1.0, current + add_share))
         
         return total_migrations
 
@@ -294,18 +520,101 @@ class Simulation:
         for country in self.countries.values():
             country.update_language_prevalence()
 
-    def run_step(self):
-        """Runs a single year of the simulation."""
+    def _apply_strategies(self):
+        """Allow countries to strategize and execute step plans affecting language and migration.
+
+        Strategies can include actions like:
+        - language_campaign: {lang_id, intensity}
+        - migration_policy: {openness, language_bonus}
+        - education_push: {lang_id, coverage}
+        """
+        for country in self.countries.values():
+            if not country.strategy:
+                continue
+            for action in country.strategy:
+                typ = action.get("type")
+                if typ == "language_campaign":
+                    lid = action.get("lang_id")
+                    intensity = float(action.get("intensity", 0.1))
+                    if lid in self.languages:
+                        # bias prevalence upward slightly to seed adoption
+                        base = country.language_prevalence.get(lid, 0.0)
+                        country.language_prevalence[lid] = max(0.0, min(1.0, base + intensity * 0.01))
+                elif typ == "migration_policy":
+                    # tweak country-specific migration rate temporarily
+                    openness = float(action.get("openness", 0.0))
+                    country.migration_rate = max(-0.02, min(0.02, country.migration_rate + openness))
+                elif typ == "education_push":
+                    lid = action.get("lang_id")
+                    coverage = float(action.get("coverage", 0.0))
+                    if lid in self.languages and coverage > 0:
+                        # Encourage agents under 25 to learn this language with small probability bonus
+                        for agent in country.agents:
+                            if agent.age <= 25 and self.languages[lid] not in agent.languages:
+                                if random.random() < min(0.25, 0.02 + 0.1 * coverage):
+                                    agent.languages.append(self.languages[lid])
+                                    if len(agent.languages) > 3:
+                                        agent.languages = agent.languages[:3]
+
+    def _run_step_impl(self):
+        """Runs a single year of the simulation with production/pop growth and cross-country language dynamics."""
+        # Reload settings at the start of each step so UI changes take effect without restart
+        try:
+            self.settings = load_settings()
+        except Exception:
+            # If reload fails, keep prior settings
+            pass
+        # Record start-of-year populations for growth targeting
+        start_pop = {cid: len(c.agents) for cid, c in self.countries.items()}
+        # Update production index
+        self._update_production()
+        # Update economy (capital and TFP) and incorporate into production index
+        self._update_economy()
+        # Refresh prevalence and compute influence context before acquisition
         self._update_country_stats()
+        self._compute_language_influence_context()
+        # AI decisions (may include conquest) before demographics
+        self._ai_decisions()
+        # Demographics
         self._age_and_mortality()
         self._births()
         self._education()
         self._update_economic_stratum()
+        # Language dynamics
         self._language_acquisition()
         self._language_attrition()
+        self._language_campaigns()
+        # Execute strategic actions which may have post-dynamics adjustments
+        self._apply_strategies()
+        # Migration
         total_migrations = self._migration()
+        # Apply exogenous population growth targets to counter systemic drift
+        self._apply_population_growth_targets(start_pop)
+        # Refresh prevalence after all changes
+        self._update_country_stats()
         self.current_year += 1
         return total_migrations
+
+    def get_economy_stats(self):
+        """Return a dict of economy stats per country: production index, capital, TFP, GDP per capita proxy."""
+        econ = self.settings.get("economy", {})
+        alpha = float(econ.get("alpha", 0.33))
+        labor_share = float(econ.get("labor_share_working_age", 0.65))
+        out = {}
+        for cid, c in self.countries.items():
+            pop = max(1, len(c.agents))
+            L = labor_share * pop
+            K = max(1.0, float(self._capital.get(cid, 1.0)))
+            A = max(1e-6, float(self._tfp.get(cid, 1.0)))
+            Y = max(1.0, A * (K ** alpha) * (L ** (1.0 - alpha)))
+            gdp_pc_proxy = Y / pop
+            out[cid] = {
+                "production_index": float(self.production_index.get(cid, 1.0)),
+                "capital": K,
+                "tfp": A,
+                "gdp_pc_proxy": gdp_pc_proxy,
+            }
+        return out
 
     def _education(self):
         """Handles education progression for agents."""
@@ -344,3 +653,263 @@ class Simulation:
             print(f"Country: {country.name}, Population: {len(country.agents)}")
             prevalence_str = ", ".join([f"{self.languages[l_id].name}: {p:.2%}" for l_id, p in country.language_prevalence.items()])
             print(f"  Prevalence: {prevalence_str if prevalence_str else 'N/A'}")
+
+    # --- New helper methods ---
+    def _update_production(self):
+        for cid in list(self.countries.keys()):
+            g = self.production_growth.get(cid, 0.01)
+            self.production_index[cid] = self.production_index.get(cid, 1.0) * (1.0 + g)
+
+    def _update_economy(self):
+        """Cobb-Douglas with TFP shocks and investment-driven capital accumulation per country.
+        Y = A * K^α * L^(1-α). We do not store Y explicitly; we adjust production_index to reflect relative growth.
+        """
+        econ = self.settings.get("economy", {})
+        alpha = float(econ.get("alpha", 0.33))
+        delta = float(econ.get("delta", 0.05))
+        gA = float(econ.get("g_A", 0.01))
+        sigma = float(econ.get("sigma_shock", 0.015))
+        spill = float(econ.get("neighbor_spillover", 0.05))
+        inv_base = float(econ.get("investment_rate_base", 0.22))
+        inv_rich = float(econ.get("investment_rate_rich", 0.26))
+        rich_thr = float(econ.get("rich_threshold", 30000.0))
+        labor_share = float(econ.get("labor_share_working_age", 0.65))
+
+        # Precompute neighbor growth weighted by geopolitics
+        neighbor_growth = {}
+        for cid, c in self.countries.items():
+            weighted_sum = 0.0
+            weight_total = 0.0
+            for nid in c.neighbor_ids:
+                if nid in self.countries:
+                    w = self._geo_weight(cid, nid)
+                    weighted_sum += w * self.production_growth.get(nid, 0.01)
+                    weight_total += w
+            neighbor_growth[cid] = (weighted_sum / weight_total) if weight_total > 0 else 0.0
+
+        for cid, c in self.countries.items():
+            pop = max(1, len(c.agents))
+            L = labor_share * pop
+            K = self._capital.get(cid, 1.0)
+            A = self._tfp.get(cid, 1.0)
+
+            # TFP evolves with baseline growth, neighbor spillover (geopolitics-weighted), sanctions drag, and a random shock
+            shock = random.gauss(0.0, sigma)
+            sanctions_penalty = 0.0
+            geo_cfg = self.settings.get("geopolitics", {})
+            thr = float(geo_cfg.get("sanctions_threshold", -0.4))
+            pen = float(geo_cfg.get("sanctions_penalty", -0.004))
+            for nid in c.neighbor_ids:
+                rel = self._rel(cid, nid)
+                if rel < thr:
+                    sanctions_penalty += pen
+            A_new = A * math.exp(gA + spill * neighbor_growth.get(cid, 0.0) + sanctions_penalty + shock)
+
+            # Output proxy for investment rule of thumb: y ~ A*K^α*L^(1-α)
+            Y = max(1.0, A_new * (K ** alpha) * (L ** (1.0 - alpha)))
+            invest_rate = inv_rich if c.gdp_per_capita >= rich_thr else inv_base
+            I = invest_rate * Y
+            K_new = max(1.0, (1.0 - delta) * K + I)
+
+            # Update state
+            self._tfp[cid] = A_new
+            self._capital[cid] = K_new
+
+            # Feed back into production_index as relative growth driver
+            # Effective growth ~ (Y_new / Y_old). We don't keep Y_old; approximate via capital growth and A growth
+            # Derive an effective growth multiplier m ≈ (K_new/K)^α * (A_new/A)
+            cap_mult = (K_new / K) ** max(0.0, min(1.0, alpha)) if K > 0 else 1.0
+            tfp_mult = (A_new / A) if A > 0 else 1.0
+            m = cap_mult * tfp_mult
+            # Blend into production_index to avoid double counting with fixed production_growth
+            self.production_index[cid] *= max(0.95, min(1.10, m))
+
+    def _compute_language_influence_context(self):
+        """Compute neighbor prevalence and global language power used for cross-country diffusion."""
+        # Neighbor prevalence weighted by geopolitics (friends influence more)
+        neighbor_prev = {}
+        for cid, country in self.countries.items():
+            agg = {}
+            wsum = 0.0
+            for nid in country.neighbor_ids:
+                if nid in self.countries:
+                    nprev = self.countries[nid].language_prevalence
+                    if nprev:
+                        w = self._geo_weight(cid, nid)
+                        for lid, p in nprev.items():
+                            agg[lid] = agg.get(lid, 0.0) + w * p
+                        wsum += w
+            neighbor_prev[cid] = ({lid: val / wsum for lid, val in agg.items()} if wsum > 0 else {})
+        self._lang_neighbor_prevalence = neighbor_prev
+
+        # Global power: based on total speakers (approx prevalence*pop) weighted by economic heft
+        total_pop = sum(len(c.agents) for c in self.countries.values()) or 1
+        # Compute per-language global speaker counts and gdp-weighted counts
+        speaker_counts = {}
+        gdp_weighted = {}
+        for c in self.countries.values():
+            pop = len(c.agents)
+            if pop == 0 or not c.language_prevalence:
+                continue
+            for lid, p in c.language_prevalence.items():
+                speakers = p * pop
+                speaker_counts[lid] = speaker_counts.get(lid, 0.0) + speakers
+                gdp_weighted[lid] = gdp_weighted.get(lid, 0.0) + speakers * max(1.0, float(c.gdp_per_capita))
+        if not speaker_counts:
+            self._lang_global_power = {}
+            return
+        # Normalize to [0,1] style power
+        max_speakers = max(speaker_counts.values())
+        max_gdpw = max(gdp_weighted.values()) if gdp_weighted else 1.0
+        global_power = {}
+        for lid in self.languages.keys():
+            share = speaker_counts.get(lid, 0.0) / max(1.0, max_speakers)
+            econ = gdp_weighted.get(lid, 0.0) / max(1.0, max_gdpw)
+            # Blend with small floor to allow tiny languages to still move locally
+            power = 0.6 * share + 0.4 * econ
+            global_power[lid] = max(0.0, min(1.0, power))
+        self._lang_global_power = global_power
+
+    def _country_power(self, cid: int) -> float:
+        """Compute a simple country power proxy based on economy and population."""
+        econ = self.settings.get("economy", {})
+        alpha = float(econ.get("alpha", 0.33))
+        labor_share = float(econ.get("labor_share_working_age", 0.65))
+        c = self.countries[cid]
+        pop = max(1, len(c.agents))
+        L = labor_share * pop
+        K = max(1.0, float(self._capital.get(cid, 1.0)))
+        A = max(1e-6, float(self._tfp.get(cid, 1.0)))
+        Y = max(1.0, A * (K ** alpha) * (L ** (1.0 - alpha)))
+        pi = max(0.1, float(self.production_index.get(cid, 1.0)))
+        return Y * pi
+
+    def _ai_decisions(self):
+        ai_cfg = self.settings.get("ai", {})
+        if not ai_cfg.get("enabled", True):
+            return
+        choices_per_year = int(ai_cfg.get("choices_per_year", 2))
+        ratio_thr = float(ai_cfg.get("conquest_power_ratio_threshold", 1.5))
+        neighbor_only = bool(ai_cfg.get("conquest_neighbor_only", True))
+        shared_lang_min = float(ai_cfg.get("conquest_shared_language_min", 0.3))
+
+        powers = {cid: self._country_power(cid) for cid in self.countries.keys()}
+        actions = []
+        for cid, c in list(self.countries.items()):
+            if len(c.agents) == 0:
+                continue
+            remaining = choices_per_year
+            if remaining > 0:
+                candidates = c.neighbor_ids if neighbor_only else list(self.countries.keys())
+                best_target, best_gain = None, 0.0
+                clp = c.language_prevalence or {}
+                for tid in candidates:
+                    if tid == cid or tid not in self.countries:
+                        continue
+                    t = self.countries[tid]
+                    if len(t.agents) == 0:
+                        continue
+                    tlp = t.language_prevalence or {}
+                    if not clp or not tlp:
+                        continue
+                    dom_c = max(clp, key=clp.get)
+                    dom_t = max(tlp, key=tlp.get)
+                    shared = dom_c == dom_t
+                    if not shared:
+                        for lid, pv in clp.items():
+                            if pv >= shared_lang_min and tlp.get(lid, 0.0) >= shared_lang_min:
+                                shared = True
+                                break
+                    if not shared:
+                        continue
+                    p_att = powers.get(cid, 1.0)
+                    p_def = powers.get(tid, 1.0)
+                    if p_att / max(1.0, p_def) < ratio_thr:
+                        continue
+                    hostile_sum = 0.0
+                    for oid in self.countries.keys():
+                        if oid in (cid, tid):
+                            continue
+                        if self._rel(cid, oid) <= 0:
+                            hostile_sum += powers.get(oid, 0.0)
+                    if p_att < 0.2 * max(1.0, hostile_sum):
+                        continue
+                    gain = p_def * (1.1 if neighbor_only else 1.0)
+                    if gain > best_gain:
+                        best_gain, best_target = gain, tid
+                if best_target is not None:
+                    actions.append(("conquer", cid, best_target))
+                    remaining -= 1
+            if remaining > 0 and (c.language_prevalence or {}):
+                dom = max(c.language_prevalence, key=c.language_prevalence.get)
+                for agent in c.agents:
+                    if agent.age <= 25 and self.languages[dom] not in agent.languages:
+                        if random.random() < 0.02:
+                            agent.languages.append(self.languages[dom])
+                            if len(agent.languages) > 3:
+                                agent.languages = agent.languages[:3]
+
+        applied_targets = set()
+        for act, a_id, t_id in actions:
+            if act == "conquer" and t_id not in applied_targets and a_id in self.countries and t_id in self.countries:
+                self._conquer(a_id, t_id)
+                applied_targets.add(t_id)
+
+    def _conquer(self, attacker_id: int, target_id: int):
+        attacker = self.countries[attacker_id]
+        target = self.countries[target_id]
+        if len(target.agents) == 0:
+            return
+        for a in list(target.agents):
+            a.country_id = attacker_id
+            attacker.agents.append(a)
+        target.agents = []
+        for oid in self.countries.keys():
+            if oid == attacker_id:
+                continue
+            cur = self._relations.get(oid, {}).get(attacker_id, 0.0)
+            new_val = min(cur, -0.5)
+            self._relations.setdefault(oid, {})[attacker_id] = new_val
+            self._relations.setdefault(attacker_id, {})[oid] = new_val
+        attacker.update_language_prevalence()
+        target.update_language_prevalence()
+
+    def _apply_population_growth_targets(self, start_pop):
+        """Adjust populations to reach exogenous per-country growth targets, by adding/removing agents at the margin.
+
+        This helps prevent systemic declines and represents policy/structural effects not captured by micro rules.
+        """
+        pop_cfg = self.settings.get("population", {})
+        min_g = float(pop_cfg.get("min_target_growth", -0.01))
+        max_g = float(pop_cfg.get("max_target_growth", 0.03))
+        for cid, country in self.countries.items():
+            target_rate = max(min_g, min(max_g, self.population_growth.get(cid, 0.0)))
+            # Target relative to start-of-year population
+            base = max(0, start_pop.get(cid, len(country.agents)))
+            target = int(round(base * (1.0 + target_rate)))
+            diff = target - len(country.agents)
+            if diff > 0:
+                # Add newborns anchored to random current parents where possible
+                potential_parents = [a for a in country.agents if 20 <= a.age < 40] or country.agents
+                for _ in range(diff):
+                    if not country.agents:
+                        break
+                    stratum = self._get_random_stratum(country.income_distribution)
+                    new_agent = Agent(self.next_agent_id, country.id, 0, stratum)
+                    self.next_agent_id += 1
+                    if potential_parents:
+                        p1 = random.choice(potential_parents)
+                        # Inherit the most prevalent local/parent language
+                        langs = list(p1.languages)
+                        if not langs and country.language_prevalence:
+                            best_lid = max(country.language_prevalence, key=country.language_prevalence.get)
+                            langs = [self.languages[best_lid]]
+                        max_langs = int(self.settings.get("language", {}).get("max_langs_per_agent", 3))
+                        new_agent.languages = langs[:max_langs]
+                    country.agents.append(new_agent)
+            elif diff < 0:
+                # Remove random agents (simulate unobserved outflows/declines)
+                k = min(-diff, len(country.agents))
+                if k > 0:
+                    to_remove = set(random.sample(country.agents, k=k))
+                    country.agents = [a for a in country.agents if a not in to_remove]
