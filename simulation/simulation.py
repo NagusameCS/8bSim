@@ -21,6 +21,10 @@ class Simulation:
         # Economy state per country: capital K and productivity A
         self._capital = {}
         self._tfp = {}
+        # Event/history capture
+        self.event_log = []  # list of dicts per year
+        self._last_migration_flows = []  # list of {source, dest, count}
+        self._last_ai_conquests = []  # list of (attacker_id, target_id)
         
         # Establish next agent id before any scaling
         cur_max_id = -1
@@ -129,9 +133,11 @@ class Simulation:
         return max(floor, 1.0 + self._rel(a, b))
 
     def _age_and_mortality(self):
-        """Ages all agents and handles mortality."""
+        """Ages all agents, handles mortality, and returns death counts per country."""
+        deaths = {}
         for country in self.countries.values():
             survivors = []
+            dead = 0
             for agent in country.agents:
                 agent.age += 1
                 age_group = (agent.age // 10) * 10
@@ -141,14 +147,20 @@ class Simulation:
                 survival_prob = max(0.0, min(1.0, survival_prob * prod_buff))
                 if random.random() < survival_prob:
                     survivors.append(agent)
+                else:
+                    dead += 1
             country.agents = survivors
+            deaths[country.id] = dead
+        return deaths
 
     def _births(self):
-        """Handles new births in each country."""
+        """Handles new births in each country and returns birth counts per country."""
+        births = {}
         for country in self.countries.values():
             living_agents = country.agents
             potential_parents = [a for a in living_agents if 20 <= a.age < 40]
             if not potential_parents:
+                births[country.id] = 0
                 continue
 
             num_births = 0
@@ -178,6 +190,8 @@ class Simulation:
                 else:
                     new_agent.languages = list(parent_langs)
                 country.agents.append(new_agent)
+            births[country.id] = num_births
+        return births
 
     def _get_random_stratum(self, distribution):
         rand = random.random()
@@ -360,10 +374,15 @@ class Simulation:
             country.update_language_prevalence()
 
     def _migration(self):
-        """Handles agent migration between countries."""
+        """Handles agent migration between countries. Also records aggregated flows for the year."""
         migrants_by_destination = {country_id: [] for country_id in self.countries}
         migrated_agent_ids = set()
         total_migrations = 0
+        # Aggregate flows as list of dicts {source, dest, count}
+        flow_counter = {}
+        def inc_flow(src, dst):
+            key = (src, dst)
+            flow_counter[key] = flow_counter.get(key, 0) + 1
 
         # Global migration event (configurable chance)
         mig_cfg = self.settings.get("migration", {})
@@ -414,6 +433,7 @@ class Simulation:
                         source_country.agents.remove(agent)
                     migrated_agent_ids.add(agent.id)
                     total_migrations += 1
+                    inc_flow(source_country.id, best_dest_id)
 
         for source_country in self.countries.values():
             # Handle both positive (immigration) and negative (emigration) rates
@@ -461,6 +481,8 @@ class Simulation:
                         source_country.agents.remove(agent)
                     migrated_agent_ids.add(agent.id) # Also track emigrants
                     total_migrations += 1
+                    # Emigration to outside the modeled world
+                    inc_flow(source_country.id, None)
                 continue  # Move to the next country
 
             for agent in unique_potential:
@@ -487,6 +509,7 @@ class Simulation:
                     source_country.agents.remove(agent)
                 migrated_agent_ids.add(agent.id)
                 total_migrations += 1
+                inc_flow(source_country.id, best_dest_id)
 
         # Apply overwrite effects at destination based on influx and density
         for country_id, new_arrivals in migrants_by_destination.items():
@@ -513,6 +536,10 @@ class Simulation:
                             # Blend, keep within [0,1]
                             dest.language_prevalence[lid] = max(0.0, min(1.0, current + add_share))
         
+        # Save flows for this year as list of dicts
+        self._last_migration_flows = [
+            {"source": s, "dest": d, "count": c} for (s, d), c in flow_counter.items()
+        ]
         return total_migrations
 
     def _update_country_stats(self):
@@ -566,6 +593,14 @@ class Simulation:
             pass
         # Record start-of-year populations for growth targeting
         start_pop = {cid: len(c.agents) for cid, c in self.countries.items()}
+        # Snapshot dominant language at start for change detection
+        start_dom = {}
+        for cid, c in self.countries.items():
+            if c.language_prevalence:
+                lid = max(c.language_prevalence, key=c.language_prevalence.get)
+                start_dom[cid] = lid
+            else:
+                start_dom[cid] = None
         # Update production index
         self._update_production()
         # Update economy (capital and TFP) and incorporate into production index
@@ -576,8 +611,8 @@ class Simulation:
         # AI decisions (may include conquest) before demographics
         self._ai_decisions()
         # Demographics
-        self._age_and_mortality()
-        self._births()
+        deaths = self._age_and_mortality()
+        births = self._births()
         self._education()
         self._update_economic_stratum()
         # Language dynamics
@@ -590,8 +625,32 @@ class Simulation:
         total_migrations = self._migration()
         # Apply exogenous population growth targets to counter systemic drift
         self._apply_population_growth_targets(start_pop)
+        # Enforce ongoing 1/3 mono/bi/tri rule per country
+        self._enforce_language_bucket_rule()
         # Refresh prevalence after all changes
         self._update_country_stats()
+        # Build per-year event log entry
+        econ_stats = self.get_economy_stats()
+        year_entry = {
+            "year": self.current_year + 1,
+            "births": births,
+            "deaths": deaths,
+            "migrations_total": total_migrations,
+            "migration_flows": list(self._last_migration_flows),
+            "conquests": list(self._last_ai_conquests),
+            "dominant_language_changes": {},
+            "economy": {cid: {"production_index": econ_stats[cid]["production_index"],
+                                "gdp_pc_proxy": econ_stats[cid]["gdp_pc_proxy"]}
+                         for cid in self.countries.keys()},
+        }
+        for cid, c in self.countries.items():
+            new_dom = None
+            if c.language_prevalence:
+                new_dom = max(c.language_prevalence, key=c.language_prevalence.get)
+            old_dom = start_dom.get(cid)
+            if new_dom != old_dom:
+                year_entry["dominant_language_changes"][cid] = {"from": old_dom, "to": new_dom}
+        self.event_log.append(year_entry)
         self.current_year += 1
         return total_migrations
 
@@ -788,6 +847,8 @@ class Simulation:
         ai_cfg = self.settings.get("ai", {})
         if not ai_cfg.get("enabled", True):
             return
+        # Reset conquest log for this year
+        self._last_ai_conquests = []
         choices_per_year = int(ai_cfg.get("choices_per_year", 2))
         ratio_thr = float(ai_cfg.get("conquest_power_ratio_threshold", 1.5))
         neighbor_only = bool(ai_cfg.get("conquest_neighbor_only", True))
@@ -854,6 +915,7 @@ class Simulation:
             if act == "conquer" and t_id not in applied_targets and a_id in self.countries and t_id in self.countries:
                 self._conquer(a_id, t_id)
                 applied_targets.add(t_id)
+                self._last_ai_conquests.append((a_id, t_id))
 
     def _conquer(self, attacker_id: int, target_id: int):
         attacker = self.countries[attacker_id]
@@ -913,3 +975,141 @@ class Simulation:
                 if k > 0:
                     to_remove = set(random.sample(country.agents, k=k))
                     country.agents = [a for a in country.agents if a not in to_remove]
+
+    def _enforce_language_bucket_rule(self):
+        """Keep each country's population split ~1/3 mono, 1/3 bi, 1/3 tri annually.
+
+        - Never allow 0 languages; assign one based on local prevalence or global power.
+        - Cap at 3 languages and trim weakest if needed.
+        - When adding languages, prefer locally prevalent and globally powerful ones.
+        """
+        # Optional toggle; default enabled
+        if not self.settings.get("language", {}).get("enforce_bucket_rule", True):
+            return
+
+        # Precompute global desirability from cached power (available after _compute_language_influence_context)
+        global_power = dict(self._lang_global_power or {})
+
+        for cid, country in self.countries.items():
+            agents = country.agents
+            n = len(agents)
+            if n == 0:
+                continue
+
+            # Build local counts from current agent languages (reflects post-migration/births)
+            local_counts = {}
+            for a in agents:
+                for L in a.languages:
+                    local_counts[L.id] = local_counts.get(L.id, 0) + 1
+            # Convert to local shares
+            total_lang_mentions = sum(local_counts.values()) or 1
+            local_share = {lid: cnt / total_lang_mentions for lid, cnt in local_counts.items()}
+
+            # Desirability score: blend local share and global power
+            def desirability(lid: int) -> float:
+                loc = local_share.get(lid, 0.0)
+                glo = global_power.get(lid, 0.0)
+                return 0.7 * loc + 0.3 * glo + 1e-6  # small epsilon to break ties
+
+            # Helper: best new language for an agent
+            def add_best_language(agent):
+                spoken = {L.id for L in agent.languages}
+                candidates = [lid for lid in self.languages.keys() if lid not in spoken]
+                if not candidates:
+                    return False
+                best = max(candidates, key=desirability)
+                agent.languages.append(self.languages[best])
+                return True
+
+            # Helper: remove weakest language from an agent (by desirability)
+            def remove_weakest_language(agent):
+                if not agent.languages:
+                    return False
+                weakest = min(agent.languages, key=lambda L: desirability(L.id))
+                agent.languages.remove(weakest)
+                return True
+
+            max_langs = int(self.settings.get("language", {}).get("max_langs_per_agent", 3))
+
+            # Normalize: ensure 1..3 languages per agent
+            for a in agents:
+                # Cap
+                if len(a.languages) > max_langs:
+                    # Trim least desirable until within cap
+                    while len(a.languages) > max_langs:
+                        remove_weakest_language(a)
+                # Floor: ensure at least 1 language
+                if len(a.languages) == 0:
+                    # Pick best according to local/global preferences, otherwise arbitrary
+                    candidates = list(self.languages.keys())
+                    if candidates:
+                        best = max(candidates, key=desirability)
+                        a.languages = [self.languages[best]]
+
+            # Compute targets (rounded split with residual to tri)
+            target_mono = int(round(n / 3))
+            target_bi = int(round(n / 3))
+            target_tri = n - target_mono - target_bi
+
+            # Bucket agents by current language count (after normalization)
+            mono = [a for a in agents if len(a.languages) == 1]
+            bi = [a for a in agents if len(a.languages) == 2]
+            tri = [a for a in agents if len(a.languages) >= 3]
+
+            # 1) Fix trilingual count first
+            if len(tri) > target_tri:
+                need = len(tri) - target_tri
+                # Demote by removing weakest language
+                # Prefer demoting those whose weakest language is very weak
+                tri_sorted = sorted(tri, key=lambda a: desirability(min(a.languages, key=lambda L: desirability(L.id)).id))
+                for a in tri_sorted[:need]:
+                    remove_weakest_language(a)  # now 2 languages
+            elif len(tri) < target_tri:
+                need = target_tri - len(tri)
+                # Promote bi first
+                bi_candidates = [a for a in bi]
+                random.shuffle(bi_candidates)
+                while need > 0 and bi_candidates:
+                    a = bi_candidates.pop()
+                    if len(a.languages) == 2 and add_best_language(a):
+                        need -= 1
+                # If still need, promote mono by adding two
+                mono_candidates = [a for a in mono]
+                random.shuffle(mono_candidates)
+                while need > 0 and mono_candidates:
+                    a = mono_candidates.pop()
+                    if len(a.languages) == 1 and add_best_language(a):
+                        add_best_language(a)
+                        need -= 1
+
+            # Recompute buckets after tri adjustments
+            mono = [a for a in agents if len(a.languages) == 1]
+            bi = [a for a in agents if len(a.languages) == 2]
+            tri = [a for a in agents if len(a.languages) >= 3]
+
+            # 2) Fix bilingual count using mono <-> bi only (keep tri fixed)
+            if len(bi) > target_bi:
+                need = len(bi) - target_bi
+                # Demote bi -> mono by removing weakest
+                bi_sorted = sorted(bi, key=lambda a: desirability(min(a.languages, key=lambda L: desirability(L.id)).id))
+                for a in bi_sorted[:need]:
+                    remove_weakest_language(a)
+            elif len(bi) < target_bi:
+                need = target_bi - len(bi)
+                mono_candidates = [a for a in mono]
+                random.shuffle(mono_candidates)
+                for a in mono_candidates:
+                    if need <= 0:
+                        break
+                    if len(a.languages) == 1 and add_best_language(a):
+                        need -= 1
+
+            # Final sanity: cap at 3, floor at 1
+            for a in agents:
+                while len(a.languages) > max_langs:
+                    remove_weakest_language(a)
+                if len(a.languages) == 0:
+                    candidates = list(self.languages.keys())
+                    if candidates:
+                        best = max(candidates, key=desirability)
+                        a.languages = [self.languages[best]]

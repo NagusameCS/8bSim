@@ -6,13 +6,14 @@ import pycountry
 from streamlit_plotly_events import plotly_events
 from simulation.main import setup_from_config
 from simulation.simulation import Simulation
+import json
 
 st.set_page_config(layout="wide")
 
 DISPLAY_POP_SCALE = 100
 
 st.title("8bSim - Language Infection and Population Dynamics")
-st.caption("Use World Settings to tune dynamics. The world map shows each country's dominant language prevalence with rich tooltips.")
+st.caption("Use World Settings to tune dynamics. The world map shows each country's dominant language prevalence with richer tooltips.")
 
 
 # --- Helper Functions ---
@@ -53,8 +54,11 @@ def format_population(population_value):
     return f"{int(round(scaled_value)):,}"
 
 
-def prepare_map_dataframe(sim, stats):
-    """Prepare a dataframe for the choropleth map, always using dominant language prevalence as color."""
+def prepare_map_dataframe(sim, stats, econ_stats=None):
+    """Prepare a dataframe for the choropleth map, always using dominant language prevalence as color.
+
+    econ_stats: optional dict from sim.get_economy_stats() for the same step to show GDPpc proxy in tooltips.
+    """
     map_rows = []
     for country_id, country_stats in stats.items():
         country_name = sim.countries[country_id].name
@@ -90,6 +94,12 @@ def prepare_map_dataframe(sim, stats):
         value = dom_prev * 100.0
         colorbar = "Dominant Language Prevalence (%)"
 
+        # GDP per Capita (proxy) tooltip
+        gdp_pc_proxy = None
+        if econ_stats is not None:
+            gdp_pc_proxy = econ_stats.get(country_id, {}).get("gdp_pc_proxy", None)
+        gdp_pc_fmt = f"${gdp_pc_proxy:,.0f}" if isinstance(gdp_pc_proxy, (int, float)) else "N/A"
+
         map_rows.append(
             {
                 "iso_alpha": iso_code,
@@ -100,6 +110,7 @@ def prepare_map_dataframe(sim, stats):
                 "colorbar": colorbar,
                 "dominant_language": dom_lang or "N/A",
                 "dominant_prevalence": f"{dom_prev*100:.1f}%",
+                "gdp_pc_proxy_fmt": gdp_pc_fmt,
             }
         )
 
@@ -125,16 +136,21 @@ def render_map(map_df, title, key):
             "languages_tooltip": True,
             "dominant_language": True,
             "dominant_prevalence": True,
+            "gdp_pc_proxy_fmt": True,
             "iso_alpha": False,
         },
-        color_continuous_scale="Viridis",
+        color_continuous_scale="Turbo",
         range_color=range_color,
         projection="natural earth",
     )
     fig.update_layout(
         title=title,
         margin=dict(l=0, r=0, t=40, b=0),
-        coloraxis_colorbar=dict(title=map_df["colorbar"].iloc[0] if not map_df.empty else ""),
+        coloraxis_colorbar=dict(
+            title=map_df["colorbar"].iloc[0] if not map_df.empty else "",
+            ticksuffix="%",
+            tickformat=".0f",
+        ),
     )
     st.plotly_chart(fig, use_container_width=True)
     return None
@@ -199,7 +215,7 @@ if st.sidebar.button("Run Simulation", disabled=st.session_state.get("running", 
             progress.progress(int(((year + 1) / num_years) * 100), text=f"Year {year + 1} of {num_years}")
 
             # --- Update Live Map ---
-            map_df = prepare_map_dataframe(sim, stats)
+            map_df = prepare_map_dataframe(sim, stats, econ_stats)
             # Clear previous map before rendering a new one in the same run to avoid duplicate keys
             map_placeholder.empty()
             with map_placeholder.container():
@@ -278,6 +294,88 @@ if (
     econ_history = st.session_state.econ_history or []
     num_years_run = len(history)
 
+    # --- History Viewer ---
+    st.header("History Viewer")
+    st.caption("Browse every year, see births/deaths, migrations, conquests, and dominant-language changes.")
+    if hasattr(sim, "event_log") and sim.event_log:
+        years = [e.get("year", i + 1) for i, e in enumerate(sim.event_log)]
+        sel_year = st.slider("Year to inspect", min_value=years[0], max_value=years[-1], value=years[-1])
+        idx = years.index(sel_year)
+        entry = sim.event_log[idx]
+
+        colA, colB, colC = st.columns(3)
+        with colA:
+            st.metric("Births (world)", f"{sum(entry.get('births', {}).values()):,}")
+        with colB:
+            st.metric("Deaths (world)", f"{sum(entry.get('deaths', {}).values()):,}")
+        with colC:
+            st.metric("Migrations (world)", f"{entry.get('migrations_total', 0):,}")
+
+        # Per-country births/deaths table
+        with st.expander("Per-country vital stats"):
+            rows = []
+            for c in sim.countries.values():
+                rows.append({
+                    "Country": c.name,
+                    "Births": entry.get("births", {}).get(c.id, 0),
+                    "Deaths": entry.get("deaths", {}).get(c.id, 0),
+                })
+            st.dataframe(pd.DataFrame(rows).set_index("Country"))
+
+        # Migration flows
+        with st.expander("Migration flows"):
+            flows = entry.get("migration_flows", [])
+            if flows:
+                def name_or_world(x):
+                    if x is None:
+                        return "Outside World"
+                    return sim.countries.get(x).name if x in sim.countries else str(x)
+                flow_rows = [{
+                    "From": name_or_world(f.get("source")),
+                    "To": name_or_world(f.get("dest")),
+                    "Count": f.get("count", 0)
+                } for f in flows]
+                st.dataframe(pd.DataFrame(flow_rows).sort_values("Count", ascending=False))
+            else:
+                st.info("No recorded migration flows this year.")
+
+        # Conquests
+        with st.expander("Conquests"):
+            cons = entry.get("conquests", [])
+            if cons:
+                con_rows = [{
+                    "Attacker": sim.countries[a].name if a in sim.countries else a,
+                    "Target": sim.countries[t].name if t in sim.countries else t,
+                } for (a, t) in cons]
+                st.table(pd.DataFrame(con_rows))
+            else:
+                st.info("No conquests this year.")
+
+        # Dominant language changes
+        with st.expander("Dominant language changes"):
+            changes = entry.get("dominant_language_changes", {})
+            if changes:
+                rows = []
+                for cid, ch in changes.items():
+                    c = sim.countries.get(cid)
+                    from_name = sim.languages[ch.get("from")].name if ch.get("from") in sim.languages else "N/A"
+                    to_name = sim.languages[ch.get("to")].name if ch.get("to") in sim.languages else "N/A"
+                    rows.append({"Country": c.name if c else cid, "From": from_name, "To": to_name})
+                st.table(pd.DataFrame(rows).set_index("Country"))
+            else:
+                st.info("No dominant-language changes this year.")
+
+        # Export full history
+        with st.expander("Export history"):
+            hist_json = {
+                "events": sim.event_log,
+                "stats": history,
+                "economy": econ_history,
+            }
+            st.download_button("Download JSON", data=json.dumps(hist_json, indent=2), file_name="8bSim_history.json")
+    else:
+        st.info("No event history recorded. Run a simulation to populate history.")
+
     # --- Display Final Results ---
     st.header("Final Simulation Results")
     st.caption(
@@ -290,7 +388,9 @@ if (
         st.warning("No countries available in the simulation.")
     else:
         final_year_stats = history[-1]
-        final_map_df = prepare_map_dataframe(sim, final_year_stats)
+        # Use last available economy stats for tooltips if present
+        last_econ = econ_history[-1] if econ_history else None
+        final_map_df = prepare_map_dataframe(sim, final_year_stats, last_econ)
         with st.container():
             _ = render_map(final_map_df, "Final Year Map", "final_map")
         # Render charts for all countries
