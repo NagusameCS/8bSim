@@ -32,6 +32,50 @@ python -m streamlit run app.py
 python -m simulation.main
 ```
 
+## How to run
+
+The commands below are for Windows PowerShell.
+
+1) Create and activate a virtual environment (recommended)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+2) Install dependencies
+
+```powershell
+pip install -r requirements.txt
+```
+
+3) Start the interactive app
+
+```powershell
+python -m streamlit run app.py
+```
+
+- Open the app in your browser at http://localhost:8501
+- Stop the app with Ctrl+C in the terminal
+
+4) Run headless in the terminal
+
+```powershell
+python -m simulation.main
+```
+
+- This sample run executes 20 years with scale_factor=1000 (see `simulation/main.py`) and prints stats to the console.
+
+5) Reset settings to defaults
+
+- Close the app, then delete `simulation/settings.json` (it will be recreated from defaults on next run), or use the UI’s reset if provided.
+
+6) Deactivate the virtual environment (optional)
+
+```powershell
+deactivate
+```
+
 ## UI guide
 
 - World Map
@@ -55,6 +99,53 @@ python -m simulation.main
 - pages/World Geopolitics.py — relations editor and geopolitics knobs
 - app.py — Streamlit app (live run + charts + final map)
 
+## Architecture (overview)
+
+```mermaid
+flowchart TD
+    A[Start year t] --> B[Load settings from settings.json and UI]
+    B --> C[Demographics: births, aging, mortality]
+    C --> D[Economy: Cobb–Douglas, capital accumulation, TFP growth, shocks, spillovers]
+    D --> E[Language: diffusion (logistic), local/neighbor/global influence, attrition]
+    E --> F[Migration: flows by GDP/language fit; overwrite effects for large influx]
+    F --> G[Geopolitics & AI: relations, sanctions drag, cautious conquest rules]
+    G --> H[Update country state + collect metrics]
+    H --> I{More years?}
+    I -- Yes --> A
+    I -- No --> J[Render final map + charts]
+```
+
+### Core model relationships
+
+```mermaid
+classDiagram
+    class Simulation {
+        +run(years)
+        +step()
+        -countries
+        -settings
+    }
+    class Country {
+        +name
+        +population
+        +languages
+        +gdp
+        +neighbors
+        +dominant_language()
+    }
+    class Agent {
+        +age
+        +languages
+    }
+    class Settings {
+        +load()
+        +save()
+    }
+    Simulation --> Settings
+    Simulation --> Country
+    Country "0..*" o-- Agent
+```
+
 ## AI and conquest rules (overview)
 
 - Each country can make a small number of choices per year
@@ -67,7 +158,14 @@ python -m simulation.main
 ## Notes
 
 - The simulation loads settings at each step, so UI changes apply without restarts
-- For large scale_factor runs, performance depends on your machine; tune the number of years in the sidebar
+- For large scale_factor runs, performance depends on your machine; reduce years, disable geopolitics, or lower migration intensity to speed up
+
+## Performance tips
+
+- Prefer headless mode (python -m simulation.main) for long runs; it avoids UI overhead.
+- Keep years modest when scale_factor is high; the model is O(years × countries).
+- Geopolitics adds extra checks per pair of countries; disabling it can improve runtime.
+- If the browser becomes sluggish, close extra Streamlit tabs or lower the update frequency in the sidebar.
 
 ## License
 
